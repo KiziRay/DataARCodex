@@ -1,4 +1,5 @@
 ﻿/target
+/src-tauri/target
 *.zip
 *.7z
 *.rar

@@ -1,0 +1,27 @@
+﻿{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "壓縮檔密碼解鎖工具",
+  "version": "0.1.0",
+  "identifier": "com.kiziray.passwordunlocker",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "壓縮檔密碼解鎖工具",
+        "width": 1100,
+        "height": 760,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}

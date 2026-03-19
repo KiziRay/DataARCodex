@@ -52,6 +52,20 @@ password_recovery_rust.exe recover --archive C:\target\secret.zip --dict C:\word
 irm https://raw.githubusercontent.com/KiziRay/DataARCodex/main/install.ps1 | iex
 ```
 
+## Tauri 桌面 GUI（B 路線）
+- 位置：`src-tauri/`（Rust backend）+ `ui/`（前端）
+- 前端採繁體中文現代化介面，對應：
+  1. 提取 Hash（John 工具鏈）
+  2. John 字典破解
+  3. Hashcat GPU 破解
+  4. 內建快速模式
+
+啟動（需先安裝 Tauri 相關工具）：
+```powershell
+cd src-tauri
+cargo tauri dev
+```
+
 ## 發佈打包（GitHub Actions）
 - 觸發：push tag `v*`
 - 產物：`password_recovery_rust-windows-x64.zip`

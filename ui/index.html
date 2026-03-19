@@ -1,0 +1,72 @@
+﻿<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>壓縮檔密碼解鎖工具</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <h1>壓縮檔密碼解鎖工具</h1>
+      <p>John the Ripper + Hashcat 流程整合，支援 ZIP / RAR / 7z</p>
+    </header>
+
+    <section class="card">
+      <h2>1. 提取 Hash（John 工具鏈）</h2>
+      <div class="grid">
+        <label>壓縮檔路徑<input id="archive" placeholder="C:\\target\\secret.rar" /></label>
+        <label>輸出 Hash 檔<input id="hashOut" value="C:\\target\\hash.txt" /></label>
+        <label>John 目錄（可選）<input id="johnDir" placeholder="C:\\tools\\john\\run" /></label>
+        <label>Perl 路徑（7z 可選）<input id="perl" placeholder="C:\\Strawberry\\perl\\bin\\perl.exe" /></label>
+      </div>
+      <button id="btnExtract">提取 Hash</button>
+    </section>
+
+    <section class="card">
+      <h2>2. John 字典破解</h2>
+      <div class="grid">
+        <label>Hash 檔<input id="johnHashFile" placeholder="C:\\target\\hash.txt" /></label>
+        <label>字典檔（可選）<input id="johnWordlist" placeholder="C:\\wordlists\\rockyou.txt" /></label>
+        <label>john.exe（可選）<input id="johnExe" placeholder="C:\\tools\\john\\run\\john.exe" /></label>
+      </div>
+      <button id="btnJohn">執行 John 破解</button>
+    </section>
+
+    <section class="card">
+      <h2>3. Hashcat GPU 破解</h2>
+      <div class="grid">
+        <label>Hash 檔<input id="hcHashFile" placeholder="C:\\target\\hash.txt" /></label>
+        <label>模式 -m<input id="hcMode" value="13000" /></label>
+        <label>攻擊模式 -a<input id="hcAttack" value="3" /></label>
+        <label>Mask（-a 3 時）<input id="hcMask" value="?d?d?d?d?d?d?d?d" /></label>
+        <label>字典（-a 0 時）<input id="hcWordlist" placeholder="C:\\wordlists\\rockyou.txt" /></label>
+        <label>hashcat.exe（可選）<input id="hcExe" placeholder="C:\\tools\\hashcat\\hashcat.exe" /></label>
+      </div>
+      <button id="btnHashcat">執行 Hashcat 破解</button>
+    </section>
+
+    <section class="card">
+      <h2>內建快速模式（7z 驗證）</h2>
+      <div class="grid">
+        <label>壓縮檔<input id="quickArchive" placeholder="C:\\target\\secret.zip" /></label>
+        <label>字典檔<input id="quickDict" placeholder="C:\\wordlists\\rockyou.txt" /></label>
+        <label>Mask<input id="quickMask" placeholder="?d?d?d?d" /></label>
+        <label>執行緒<input id="quickThreads" value="8" /></label>
+      </div>
+      <div class="row">
+        <button id="btnQuickDict">快速字典解鎖</button>
+        <button id="btnQuickMask">快速 Mask 解鎖</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>執行結果</h2>
+      <pre id="log"></pre>
+    </section>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
