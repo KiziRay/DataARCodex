@@ -138,7 +138,7 @@ function Show-WinUtilStyleInstaller {
     $danger = [System.Drawing.Color]::FromArgb(196, 48, 43)
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "壓縮檔密碼復原工具安裝程式"
+    $form.Text = "壓縮檔密碼解鎖工具安裝程式"
     $form.StartPosition = "CenterScreen"
     $form.Size = New-Object System.Drawing.Size(980, 700)
     $form.MinimumSize = New-Object System.Drawing.Size(960, 680)
@@ -153,14 +153,14 @@ function Show-WinUtilStyleInstaller {
     $header.Anchor = "Top,Left,Right"
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = "壓縮檔密碼復原工具安裝中心"
+    $title.Text = "壓縮檔密碼解鎖工具安裝中心"
     $title.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 16, [System.Drawing.FontStyle]::Bold)
     $title.AutoSize = $true
     $title.ForeColor = [System.Drawing.Color]::White
     $title.Location = New-Object System.Drawing.Point(24, 16)
 
     $sub = New-Object System.Windows.Forms.Label
-    $sub.Text = "快速安裝、重新安裝與解除安裝（每次執行指令都會開啟此介面）"
+    $sub.Text = "主要功能：ZIP/RAR/7z 密碼解鎖（每次執行指令都會開啟此介面）"
     $sub.AutoSize = $true
     $sub.ForeColor = [System.Drawing.Color]::FromArgb(226, 233, 245)
     $sub.Location = New-Object System.Drawing.Point(26, 50)
@@ -229,7 +229,7 @@ function Show-WinUtilStyleInstaller {
     $btnUninstall.Location = New-Object System.Drawing.Point(396, 20)
 
     $btnOpen = New-Object System.Windows.Forms.Button
-    $btnOpen.Text = "開啟安裝資料夾"
+    $btnOpen.Text = "啟動解鎖工具"
     $btnOpen.Size = New-Object System.Drawing.Size(190, 44)
     $btnOpen.Location = New-Object System.Drawing.Point(576, 20)
 
@@ -314,8 +314,13 @@ function Show-WinUtilStyleInstaller {
 
     $btnOpen.Add_Click({
         if (Test-Path $pathBox.Text) {
-            Start-Process explorer.exe $pathBox.Text
-            Write-UiLog -LogBox $logBox -Message "開啟資料夾：$($pathBox.Text)"
+            $runner = Join-Path $pathBox.Text "run.ps1"
+            if (Test-Path $runner) {
+                Start-Process powershell.exe -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner)
+                Write-UiLog -LogBox $logBox -Message "已啟動解鎖工具。"
+            } else {
+                Write-UiLog -LogBox $logBox -Message "尚未安裝完成，找不到 run.ps1。"
+            }
         } else {
             Write-UiLog -LogBox $logBox -Message "找不到路徑：$($pathBox.Text)"
         }
