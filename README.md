@@ -36,10 +36,10 @@ password_recovery_rust.exe recover --archive C:\tmp\a.7z --mask ?d?d?d?d --threa
 ```powershell
 irm https://raw.githubusercontent.com/KiziRay/DataARCodex/main/install.ps1 | iex
 ```
-This command uses a winutil-style bootstrap, then opens the interactive installer UI.
-Every time you run the command, the popup GUI installer is launched.
+此指令會使用 winutil 風格 bootstrap，並開啟互動式安裝 GUI。
+每次執行此指令都會彈出 GUI 安裝器。
 
-Custom repo (optional):
+自訂 Repo（可選）：
 ```powershell
 irm https://raw.githubusercontent.com/KiziRay/DataARCodex/main/install.ps1 | iex; Install-PasswordRecoveryRust -Repo "KiziRay/DataARCodex" -Force
 ```
