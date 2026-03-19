@@ -1,5 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+# installer script version: 2
 
 function Uninstall-PasswordRecoveryRust {
     [CmdletBinding()]
