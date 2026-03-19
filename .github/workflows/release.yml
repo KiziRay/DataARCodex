@@ -1,0 +1,49 @@
+﻿name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Prepare package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path out -Force | Out-Null
+          Copy-Item target/release/password_recovery_rust.exe out/
+
+          @"
+          `$exe = Join-Path `$PSScriptRoot 'password_recovery_rust.exe'
+          if (-not (Test-Path `$exe)) { throw 'password_recovery_rust.exe not found' }
+          & `$exe `$args
+          "@ | Set-Content -Path out/run.ps1 -Encoding UTF8
+
+          @"
+          Set-StrictMode -Version Latest
+          `$ErrorActionPreference = 'Stop'
+          Remove-Item -Path `$PSScriptRoot -Recurse -Force
+          Write-Host 'Uninstalled PasswordRecoveryRust package folder'
+          "@ | Set-Content -Path out/uninstall.ps1 -Encoding UTF8
+
+          Compress-Archive -Path out/* -DestinationPath password_recovery_rust-windows-x64.zip -Force
+
+      - name: Create release and upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: password_recovery_rust-windows-x64.zip

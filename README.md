@@ -34,10 +34,18 @@ password_recovery_rust.exe recover --archive C:\tmp\a.7z --mask ?d?d?d?d --threa
 
 ## Install by `irm | iex`
 ```powershell
-irm https://raw.githubusercontent.com/<OWNER>/<REPO>/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/KiziRay/DataARCodex/main/install.ps1 | iex
 ```
 
-With explicit repo:
+Custom repo (optional):
 ```powershell
-irm https://raw.githubusercontent.com/<OWNER>/<REPO>/main/install.ps1 | iex; Install-PasswordRecoveryRust -Repo "<OWNER>/<REPO>" -Force
+irm https://raw.githubusercontent.com/KiziRay/DataARCodex/main/install.ps1 | iex; Install-PasswordRecoveryRust -Repo "KiziRay/DataARCodex" -Force
 ```
+
+## Release Packaging (GitHub Actions)
+- Trigger: push tag `v*` (for example `v2.0.1`)
+- Output asset: `password_recovery_rust-windows-x64.zip`
+- Includes:
+  - `password_recovery_rust.exe`
+  - `run.ps1`
+  - `uninstall.ps1`

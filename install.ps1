@@ -4,14 +4,10 @@ $ErrorActionPreference = "Stop"
 function Install-PasswordRecoveryRust {
     [CmdletBinding()]
     param(
-        [string]$Repo = "<OWNER>/<REPO>",
+        [string]$Repo = "KiziRay/DataARCodex",
         [string]$InstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust",
         [switch]$Force
     )
-
-    if ($Repo -eq "<OWNER>/<REPO>") {
-        throw "請指定 GitHub repo。範例: Install-PasswordRecoveryRust -Repo 'yourname/password-recovery-rust'"
-    }
 
     if (Test-Path $InstallPath) {
         if (-not $Force) {
