@@ -1,19 +1,35 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-# installer script version: 2
+
+function Write-UiLog {
+    param(
+        [System.Windows.Forms.TextBox]$LogBox,
+        [string]$Message
+    )
+
+    $time = Get-Date -Format "HH:mm:ss"
+    $line = "[$time] $Message"
+    if ($null -ne $LogBox) {
+        $LogBox.AppendText($line + [Environment]::NewLine)
+        $LogBox.SelectionStart = $LogBox.TextLength
+        $LogBox.ScrollToCaret()
+    } else {
+        Write-Host $line
+    }
+}
 
 function Uninstall-PasswordRecoveryRust {
     [CmdletBinding()]
     param(
-        [string]$InstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust"
+        [string]$InstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust",
+        [System.Windows.Forms.TextBox]$LogBox
     )
 
     if (Test-Path $InstallPath) {
         Remove-Item -Path $InstallPath -Recurse -Force
-        Write-Host "Removed: $InstallPath" -ForegroundColor Yellow
-    }
-    else {
-        Write-Host "Not installed: $InstallPath" -ForegroundColor DarkYellow
+        Write-UiLog -LogBox $LogBox -Message "Removed: $InstallPath"
+    } else {
+        Write-UiLog -LogBox $LogBox -Message "Not installed: $InstallPath"
     }
 }
 
@@ -22,28 +38,39 @@ function Install-PasswordRecoveryRust {
     param(
         [string]$Repo = "KiziRay/DataARCodex",
         [string]$InstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust",
-        [switch]$Force
+        [switch]$Force,
+        [System.Windows.Forms.TextBox]$LogBox
     )
+
+    Write-UiLog -LogBox $LogBox -Message "Preparing install from repo: $Repo"
 
     if (Test-Path $InstallPath) {
         if (-not $Force) {
-            throw "InstallPath 已存在: $InstallPath。加上 -Force 覆蓋。"
+            throw "InstallPath already exists: $InstallPath. Use -Force to overwrite."
         }
+        Write-UiLog -LogBox $LogBox -Message "Cleaning existing path: $InstallPath"
         Remove-Item -Path $InstallPath -Recurse -Force
     }
 
     New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
 
     $api = "https://api.github.com/repos/$Repo/releases/latest"
+    Write-UiLog -LogBox $LogBox -Message "Query latest release: $api"
     $release = Invoke-RestMethod -Uri $api
-    $asset = $release.assets | Where-Object { $_.name -match "windows" -and $_.name -match "x64" -and $_.name -match "\.zip$" } | Select-Object -First 1
+
+    $asset = $release.assets |
+        Where-Object { $_.name -match "windows" -and $_.name -match "x64" -and $_.name -match "\.zip$" } |
+        Select-Object -First 1
 
     if (-not $asset) {
-        throw "找不到 windows x64 zip 資產，請確認 release 檔名。"
+        throw "No windows x64 zip asset found in latest release."
     }
 
     $zipPath = Join-Path $env:TEMP "password_recovery_rust_latest.zip"
+    Write-UiLog -LogBox $LogBox -Message "Download: $($asset.browser_download_url)"
     Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+
+    Write-UiLog -LogBox $LogBox -Message "Extract to: $InstallPath"
     Expand-Archive -Path $zipPath -DestinationPath $InstallPath -Force
     Remove-Item $zipPath -Force
 
@@ -62,11 +89,156 @@ Remove-Item -Path `"$InstallPath`" -Recurse -Force
 Write-Host 'Uninstalled PasswordRecoveryRust'
 "@ | Set-Content -Path $uninstall -Encoding UTF8
 
-    Write-Host "Installed to: $InstallPath" -ForegroundColor Green
-    Write-Host "Run: & '$launcher' recover --archive <file> --dict <wordlist>"
+    Write-UiLog -LogBox $LogBox -Message "Installed successfully: $InstallPath"
+    Write-UiLog -LogBox $LogBox -Message "Run: & '$launcher' recover --archive <file> --dict <wordlist>"
 }
 
-function Show-InstallMenu {
+function Show-WinUtilStyleInstaller {
+    [CmdletBinding()]
+    param(
+        [string]$DefaultRepo = "KiziRay/DataARCodex",
+        [string]$DefaultInstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust"
+    )
+
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "Password Recovery Rust Utility"
+    $form.StartPosition = "CenterScreen"
+    $form.Size = New-Object System.Drawing.Size(900, 620)
+    $form.BackColor = [System.Drawing.Color]::FromArgb(25, 29, 38)
+    $form.ForeColor = [System.Drawing.Color]::White
+    $form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+
+    $title = New-Object System.Windows.Forms.Label
+    $title.Text = "Password Recovery Rust - WinUtil Style"
+    $title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 16)
+    $title.AutoSize = $true
+    $title.Location = New-Object System.Drawing.Point(20, 15)
+
+    $sub = New-Object System.Windows.Forms.Label
+    $sub.Text = "Install / Reinstall / Uninstall from GitHub Release"
+    $sub.AutoSize = $true
+    $sub.ForeColor = [System.Drawing.Color]::FromArgb(170, 180, 200)
+    $sub.Location = New-Object System.Drawing.Point(22, 50)
+
+    $repoLabel = New-Object System.Windows.Forms.Label
+    $repoLabel.Text = "GitHub Repo"
+    $repoLabel.AutoSize = $true
+    $repoLabel.Location = New-Object System.Drawing.Point(22, 95)
+
+    $repoBox = New-Object System.Windows.Forms.TextBox
+    $repoBox.Text = $DefaultRepo
+    $repoBox.Size = New-Object System.Drawing.Size(580, 30)
+    $repoBox.Location = New-Object System.Drawing.Point(22, 118)
+
+    $pathLabel = New-Object System.Windows.Forms.Label
+    $pathLabel.Text = "Install Path"
+    $pathLabel.AutoSize = $true
+    $pathLabel.Location = New-Object System.Drawing.Point(22, 160)
+
+    $pathBox = New-Object System.Windows.Forms.TextBox
+    $pathBox.Text = $DefaultInstallPath
+    $pathBox.Size = New-Object System.Drawing.Size(580, 30)
+    $pathBox.Location = New-Object System.Drawing.Point(22, 183)
+
+    $btnInstall = New-Object System.Windows.Forms.Button
+    $btnInstall.Text = "Install"
+    $btnInstall.Size = New-Object System.Drawing.Size(140, 40)
+    $btnInstall.Location = New-Object System.Drawing.Point(22, 235)
+
+    $btnReinstall = New-Object System.Windows.Forms.Button
+    $btnReinstall.Text = "Reinstall (Force)"
+    $btnReinstall.Size = New-Object System.Drawing.Size(140, 40)
+    $btnReinstall.Location = New-Object System.Drawing.Point(172, 235)
+
+    $btnUninstall = New-Object System.Windows.Forms.Button
+    $btnUninstall.Text = "Uninstall"
+    $btnUninstall.Size = New-Object System.Drawing.Size(140, 40)
+    $btnUninstall.Location = New-Object System.Drawing.Point(322, 235)
+
+    $btnOpen = New-Object System.Windows.Forms.Button
+    $btnOpen.Text = "Open Folder"
+    $btnOpen.Size = New-Object System.Drawing.Size(140, 40)
+    $btnOpen.Location = New-Object System.Drawing.Point(472, 235)
+
+    $btnExit = New-Object System.Windows.Forms.Button
+    $btnExit.Text = "Exit"
+    $btnExit.Size = New-Object System.Drawing.Size(140, 40)
+    $btnExit.Location = New-Object System.Drawing.Point(622, 235)
+
+    $logLabel = New-Object System.Windows.Forms.Label
+    $logLabel.Text = "Activity Log"
+    $logLabel.AutoSize = $true
+    $logLabel.Location = New-Object System.Drawing.Point(22, 295)
+
+    $logBox = New-Object System.Windows.Forms.TextBox
+    $logBox.Multiline = $true
+    $logBox.ScrollBars = "Vertical"
+    $logBox.ReadOnly = $true
+    $logBox.BackColor = [System.Drawing.Color]::FromArgb(13, 17, 23)
+    $logBox.ForeColor = [System.Drawing.Color]::FromArgb(186, 232, 255)
+    $logBox.BorderStyle = "FixedSingle"
+    $logBox.Font = New-Object System.Drawing.Font("Consolas", 10)
+    $logBox.Location = New-Object System.Drawing.Point(22, 320)
+    $logBox.Size = New-Object System.Drawing.Size(840, 240)
+
+    $runAction = {
+        param([scriptblock]$Action)
+        try {
+            $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+            & $Action
+        } catch {
+            Write-UiLog -LogBox $logBox -Message ("ERROR: " + $_.Exception.Message)
+            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Installer Error", "OK", "Error") | Out-Null
+        } finally {
+            $form.Cursor = [System.Windows.Forms.Cursors]::Default
+        }
+    }
+
+    $btnInstall.Add_Click({
+        & $runAction {
+            Install-PasswordRecoveryRust -Repo $repoBox.Text -InstallPath $pathBox.Text -LogBox $logBox
+        }
+    })
+
+    $btnReinstall.Add_Click({
+        & $runAction {
+            Install-PasswordRecoveryRust -Repo $repoBox.Text -InstallPath $pathBox.Text -Force -LogBox $logBox
+        }
+    })
+
+    $btnUninstall.Add_Click({
+        & $runAction {
+            Uninstall-PasswordRecoveryRust -InstallPath $pathBox.Text -LogBox $logBox
+        }
+    })
+
+    $btnOpen.Add_Click({
+        if (Test-Path $pathBox.Text) {
+            Start-Process explorer.exe $pathBox.Text
+            Write-UiLog -LogBox $logBox -Message "Open folder: $($pathBox.Text)"
+        } else {
+            Write-UiLog -LogBox $logBox -Message "Path not found: $($pathBox.Text)"
+        }
+    })
+
+    $btnExit.Add_Click({ $form.Close() })
+
+    $form.Controls.AddRange(@(
+        $title, $sub, $repoLabel, $repoBox, $pathLabel, $pathBox,
+        $btnInstall, $btnReinstall, $btnUninstall, $btnOpen, $btnExit,
+        $logLabel, $logBox
+    ))
+
+    Write-UiLog -LogBox $logBox -Message "UI ready. Choose an action."
+    [void]$form.ShowDialog()
+}
+
+function Show-ConsoleMenu {
     [CmdletBinding()]
     param(
         [string]$DefaultRepo = "KiziRay/DataARCodex",
@@ -76,7 +248,7 @@ function Show-InstallMenu {
     while ($true) {
         Clear-Host
         Write-Host "============================================"
-        Write-Host " Password Recovery Rust Installer"
+        Write-Host " Password Recovery Rust Installer (Console)"
         Write-Host "============================================"
         Write-Host "Repo: $DefaultRepo"
         Write-Host "Path: $InstallPath"
@@ -85,45 +257,13 @@ function Show-InstallMenu {
         Write-Host "[2] Reinstall (Force)"
         Write-Host "[3] Uninstall"
         Write-Host "[4] Exit"
-        Write-Host ""
 
-        $choice = Read-Host "Choose (1-4)"
-
-        switch ($choice) {
-            "1" {
-                try {
-                    Install-PasswordRecoveryRust -Repo $DefaultRepo -InstallPath $InstallPath
-                }
-                catch {
-                    Write-Host "Install failed: $($_.Exception.Message)" -ForegroundColor Red
-                }
-                Read-Host "Press Enter to continue" | Out-Null
-            }
-            "2" {
-                try {
-                    Install-PasswordRecoveryRust -Repo $DefaultRepo -InstallPath $InstallPath -Force
-                }
-                catch {
-                    Write-Host "Reinstall failed: $($_.Exception.Message)" -ForegroundColor Red
-                }
-                Read-Host "Press Enter to continue" | Out-Null
-            }
-            "3" {
-                try {
-                    Uninstall-PasswordRecoveryRust -InstallPath $InstallPath
-                }
-                catch {
-                    Write-Host "Uninstall failed: $($_.Exception.Message)" -ForegroundColor Red
-                }
-                Read-Host "Press Enter to continue" | Out-Null
-            }
-            "4" {
-                break
-            }
-            default {
-                Write-Host "Invalid option" -ForegroundColor Red
-                Start-Sleep -Seconds 1
-            }
+        switch (Read-Host "Choose (1-4)") {
+            "1" { Install-PasswordRecoveryRust -Repo $DefaultRepo -InstallPath $InstallPath; Read-Host "Press Enter" | Out-Null }
+            "2" { Install-PasswordRecoveryRust -Repo $DefaultRepo -InstallPath $InstallPath -Force; Read-Host "Press Enter" | Out-Null }
+            "3" { Uninstall-PasswordRecoveryRust -InstallPath $InstallPath; Read-Host "Press Enter" | Out-Null }
+            "4" { break }
+            default { Start-Sleep -Seconds 1 }
         }
     }
 }
@@ -132,12 +272,14 @@ if ($MyInvocation.InvocationName -ne '.') {
     try {
         if ($PSBoundParameters.Count -gt 0) {
             Install-PasswordRecoveryRust @PSBoundParameters
+        } else {
+            try {
+                Show-WinUtilStyleInstaller
+            } catch {
+                Show-ConsoleMenu
+            }
         }
-        else {
-            Show-InstallMenu
-        }
-    }
-    catch {
+    } catch {
         Write-Error $_
     }
 }
