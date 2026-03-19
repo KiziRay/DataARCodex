@@ -1,5 +1,32 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$script:InstallerRepo = "KiziRay/DataARCodex"
+
+function Ensure-StaGuiSession {
+    $state = [Threading.Thread]::CurrentThread.GetApartmentState()
+    if ($state -eq [Threading.ApartmentState]::STA) {
+        return
+    }
+
+    if ($env:PRR_GUI_STA -eq "1") {
+        throw "Unable to launch GUI in STA mode."
+    }
+
+    $env:PRR_GUI_STA = "1"
+    $cmd = @"
+`$env:PRR_GUI_STA='1'
+irm 'https://raw.githubusercontent.com/$script:InstallerRepo/main/installer-main.ps1' | iex
+"@
+
+    Start-Process -FilePath "powershell.exe" -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-STA",
+        "-Command", $cmd
+    ) | Out-Null
+
+    return $true
+}
 
 function Write-UiLog {
     param(
@@ -238,46 +265,11 @@ function Show-WinUtilStyleInstaller {
     [void]$form.ShowDialog()
 }
 
-function Show-ConsoleMenu {
-    [CmdletBinding()]
-    param(
-        [string]$DefaultRepo = "KiziRay/DataARCodex",
-        [string]$InstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust"
-    )
-
-    while ($true) {
-        Clear-Host
-        Write-Host "============================================"
-        Write-Host " Password Recovery Rust Installer (Console)"
-        Write-Host "============================================"
-        Write-Host "Repo: $DefaultRepo"
-        Write-Host "Path: $InstallPath"
-        Write-Host ""
-        Write-Host "[1] Install"
-        Write-Host "[2] Reinstall (Force)"
-        Write-Host "[3] Uninstall"
-        Write-Host "[4] Exit"
-
-        switch (Read-Host "Choose (1-4)") {
-            "1" { Install-PasswordRecoveryRust -Repo $DefaultRepo -InstallPath $InstallPath; Read-Host "Press Enter" | Out-Null }
-            "2" { Install-PasswordRecoveryRust -Repo $DefaultRepo -InstallPath $InstallPath -Force; Read-Host "Press Enter" | Out-Null }
-            "3" { Uninstall-PasswordRecoveryRust -InstallPath $InstallPath; Read-Host "Press Enter" | Out-Null }
-            "4" { break }
-            default { Start-Sleep -Seconds 1 }
-        }
-    }
-}
-
 if ($MyInvocation.InvocationName -ne '.') {
     try {
-        if ($PSBoundParameters.Count -gt 0) {
-            Install-PasswordRecoveryRust @PSBoundParameters
-        } else {
-            try {
-                Show-WinUtilStyleInstaller
-            } catch {
-                Show-ConsoleMenu
-            }
+        $relaunched = Ensure-StaGuiSession
+        if (-not $relaunched) {
+            Show-WinUtilStyleInstaller
         }
     } catch {
         Write-Error $_

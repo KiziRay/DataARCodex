@@ -37,6 +37,7 @@ password_recovery_rust.exe recover --archive C:\tmp\a.7z --mask ?d?d?d?d --threa
 irm https://raw.githubusercontent.com/KiziRay/DataARCodex/main/install.ps1 | iex
 ```
 This command uses a winutil-style bootstrap, then opens the interactive installer UI.
+Every time you run the command, the popup GUI installer is launched.
 
 Custom repo (optional):
 ```powershell
