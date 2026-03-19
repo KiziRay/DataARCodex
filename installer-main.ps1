@@ -69,7 +69,7 @@ function Install-PasswordRecoveryRust {
         [System.Windows.Forms.TextBox]$LogBox
     )
 
-    Write-UiLog -LogBox $LogBox -Message "準備從 Repo 安裝：$Repo"
+    Write-UiLog -LogBox $LogBox -Message "準備從儲存庫安裝：$Repo"
 
     if (Test-Path $InstallPath) {
         if (-not $Force) {
@@ -82,7 +82,7 @@ function Install-PasswordRecoveryRust {
     New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
 
     $api = "https://api.github.com/repos/$Repo/releases/latest"
-    Write-UiLog -LogBox $LogBox -Message "查詢最新 Release：$api"
+    Write-UiLog -LogBox $LogBox -Message "查詢最新版本資訊：$api"
     $release = Invoke-RestMethod -Uri $api
 
     $asset = $release.assets |
@@ -90,7 +90,7 @@ function Install-PasswordRecoveryRust {
         Select-Object -First 1
 
     if (-not $asset) {
-        throw "最新 Release 找不到 windows x64 zip 資產。"
+        throw "最新版本找不到 Windows x64 的 zip 安裝檔。"
     }
 
     $zipPath = Join-Path $env:TEMP "password_recovery_rust_latest.zip"
@@ -131,86 +131,155 @@ function Show-WinUtilStyleInstaller {
     Add-Type -AssemblyName System.Drawing
     [System.Windows.Forms.Application]::EnableVisualStyles()
 
+    $bg = [System.Drawing.Color]::FromArgb(245, 247, 251)
+    $panelBg = [System.Drawing.Color]::White
+    $accent = [System.Drawing.Color]::FromArgb(32, 99, 220)
+    $muted = [System.Drawing.Color]::FromArgb(94, 104, 125)
+    $danger = [System.Drawing.Color]::FromArgb(196, 48, 43)
+
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "Password Recovery Rust 安裝工具"
+    $form.Text = "壓縮檔密碼復原工具安裝程式"
     $form.StartPosition = "CenterScreen"
-    $form.Size = New-Object System.Drawing.Size(900, 620)
-    $form.BackColor = [System.Drawing.Color]::FromArgb(25, 29, 38)
-    $form.ForeColor = [System.Drawing.Color]::White
-    $form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $form.Size = New-Object System.Drawing.Size(980, 700)
+    $form.MinimumSize = New-Object System.Drawing.Size(960, 680)
+    $form.BackColor = $bg
+    $form.ForeColor = [System.Drawing.Color]::FromArgb(20, 24, 33)
+    $form.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 10)
+
+    $header = New-Object System.Windows.Forms.Panel
+    $header.BackColor = $accent
+    $header.Location = New-Object System.Drawing.Point(0, 0)
+    $header.Size = New-Object System.Drawing.Size(980, 86)
+    $header.Anchor = "Top,Left,Right"
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = "Password Recovery Rust 安裝器"
-    $title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 16)
+    $title.Text = "壓縮檔密碼復原工具安裝中心"
+    $title.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 16, [System.Drawing.FontStyle]::Bold)
     $title.AutoSize = $true
-    $title.Location = New-Object System.Drawing.Point(20, 15)
+    $title.ForeColor = [System.Drawing.Color]::White
+    $title.Location = New-Object System.Drawing.Point(24, 16)
 
     $sub = New-Object System.Windows.Forms.Label
-    $sub.Text = "從 GitHub Release 進行安裝 / 重新安裝 / 解除安裝"
+    $sub.Text = "快速安裝、重新安裝與解除安裝（每次執行指令都會開啟此介面）"
     $sub.AutoSize = $true
-    $sub.ForeColor = [System.Drawing.Color]::FromArgb(170, 180, 200)
-    $sub.Location = New-Object System.Drawing.Point(22, 50)
+    $sub.ForeColor = [System.Drawing.Color]::FromArgb(226, 233, 245)
+    $sub.Location = New-Object System.Drawing.Point(26, 50)
+
+    $header.Controls.AddRange(@($title, $sub))
+
+    $configPanel = New-Object System.Windows.Forms.Panel
+    $configPanel.BackColor = $panelBg
+    $configPanel.Location = New-Object System.Drawing.Point(20, 104)
+    $configPanel.Size = New-Object System.Drawing.Size(930, 190)
+    $configPanel.Anchor = "Top,Left,Right"
+    $configPanel.BorderStyle = "FixedSingle"
+
+    $configTitle = New-Object System.Windows.Forms.Label
+    $configTitle.Text = "設定"
+    $configTitle.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 12, [System.Drawing.FontStyle]::Bold)
+    $configTitle.AutoSize = $true
+    $configTitle.Location = New-Object System.Drawing.Point(16, 14)
 
     $repoLabel = New-Object System.Windows.Forms.Label
-    $repoLabel.Text = "GitHub Repo 倉庫"
+    $repoLabel.Text = "來源倉庫"
     $repoLabel.AutoSize = $true
-    $repoLabel.Location = New-Object System.Drawing.Point(22, 95)
+    $repoLabel.ForeColor = $muted
+    $repoLabel.Location = New-Object System.Drawing.Point(18, 54)
 
     $repoBox = New-Object System.Windows.Forms.TextBox
     $repoBox.Text = $DefaultRepo
-    $repoBox.Size = New-Object System.Drawing.Size(580, 30)
-    $repoBox.Location = New-Object System.Drawing.Point(22, 118)
+    $repoBox.Size = New-Object System.Drawing.Size(885, 30)
+    $repoBox.Location = New-Object System.Drawing.Point(18, 75)
+    $repoBox.Anchor = "Top,Left,Right"
 
     $pathLabel = New-Object System.Windows.Forms.Label
     $pathLabel.Text = "安裝路徑"
     $pathLabel.AutoSize = $true
-    $pathLabel.Location = New-Object System.Drawing.Point(22, 160)
+    $pathLabel.ForeColor = $muted
+    $pathLabel.Location = New-Object System.Drawing.Point(18, 116)
 
     $pathBox = New-Object System.Windows.Forms.TextBox
     $pathBox.Text = $DefaultInstallPath
-    $pathBox.Size = New-Object System.Drawing.Size(580, 30)
-    $pathBox.Location = New-Object System.Drawing.Point(22, 183)
+    $pathBox.Size = New-Object System.Drawing.Size(885, 30)
+    $pathBox.Location = New-Object System.Drawing.Point(18, 137)
+    $pathBox.Anchor = "Top,Left,Right"
+
+    $configPanel.Controls.AddRange(@($configTitle, $repoLabel, $repoBox, $pathLabel, $pathBox))
+
+    $actionPanel = New-Object System.Windows.Forms.Panel
+    $actionPanel.BackColor = $panelBg
+    $actionPanel.Location = New-Object System.Drawing.Point(20, 308)
+    $actionPanel.Size = New-Object System.Drawing.Size(930, 86)
+    $actionPanel.Anchor = "Top,Left,Right"
+    $actionPanel.BorderStyle = "FixedSingle"
 
     $btnInstall = New-Object System.Windows.Forms.Button
     $btnInstall.Text = "安裝"
-    $btnInstall.Size = New-Object System.Drawing.Size(140, 40)
-    $btnInstall.Location = New-Object System.Drawing.Point(22, 235)
+    $btnInstall.Size = New-Object System.Drawing.Size(170, 44)
+    $btnInstall.Location = New-Object System.Drawing.Point(16, 20)
 
     $btnReinstall = New-Object System.Windows.Forms.Button
     $btnReinstall.Text = "重新安裝（強制）"
-    $btnReinstall.Size = New-Object System.Drawing.Size(140, 40)
-    $btnReinstall.Location = New-Object System.Drawing.Point(172, 235)
+    $btnReinstall.Size = New-Object System.Drawing.Size(190, 44)
+    $btnReinstall.Location = New-Object System.Drawing.Point(196, 20)
 
     $btnUninstall = New-Object System.Windows.Forms.Button
     $btnUninstall.Text = "解除安裝"
-    $btnUninstall.Size = New-Object System.Drawing.Size(140, 40)
-    $btnUninstall.Location = New-Object System.Drawing.Point(322, 235)
+    $btnUninstall.Size = New-Object System.Drawing.Size(170, 44)
+    $btnUninstall.Location = New-Object System.Drawing.Point(396, 20)
 
     $btnOpen = New-Object System.Windows.Forms.Button
-    $btnOpen.Text = "開啟資料夾"
-    $btnOpen.Size = New-Object System.Drawing.Size(140, 40)
-    $btnOpen.Location = New-Object System.Drawing.Point(472, 235)
+    $btnOpen.Text = "開啟安裝資料夾"
+    $btnOpen.Size = New-Object System.Drawing.Size(190, 44)
+    $btnOpen.Location = New-Object System.Drawing.Point(576, 20)
 
     $btnExit = New-Object System.Windows.Forms.Button
     $btnExit.Text = "關閉"
-    $btnExit.Size = New-Object System.Drawing.Size(140, 40)
-    $btnExit.Location = New-Object System.Drawing.Point(622, 235)
+    $btnExit.Size = New-Object System.Drawing.Size(140, 44)
+    $btnExit.Location = New-Object System.Drawing.Point(776, 20)
+    $btnExit.Anchor = "Top,Right"
+
+    foreach ($btn in @($btnInstall, $btnReinstall, $btnUninstall, $btnOpen, $btnExit)) {
+        $btn.FlatStyle = "Flat"
+        $btn.FlatAppearance.BorderSize = 0
+        $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $btn.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 10, [System.Drawing.FontStyle]::Bold)
+        $btn.ForeColor = [System.Drawing.Color]::White
+    }
+    $btnInstall.BackColor = $accent
+    $btnReinstall.BackColor = [System.Drawing.Color]::FromArgb(50, 123, 244)
+    $btnUninstall.BackColor = $danger
+    $btnOpen.BackColor = [System.Drawing.Color]::FromArgb(72, 78, 92)
+    $btnExit.BackColor = [System.Drawing.Color]::FromArgb(108, 116, 136)
+
+    $actionPanel.Controls.AddRange(@($btnInstall, $btnReinstall, $btnUninstall, $btnOpen, $btnExit))
+
+    $logPanel = New-Object System.Windows.Forms.Panel
+    $logPanel.BackColor = $panelBg
+    $logPanel.Location = New-Object System.Drawing.Point(20, 408)
+    $logPanel.Size = New-Object System.Drawing.Size(930, 236)
+    $logPanel.Anchor = "Top,Bottom,Left,Right"
+    $logPanel.BorderStyle = "FixedSingle"
 
     $logLabel = New-Object System.Windows.Forms.Label
-    $logLabel.Text = "操作日誌"
+    $logLabel.Text = "操作紀錄"
+    $logLabel.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 11, [System.Drawing.FontStyle]::Bold)
     $logLabel.AutoSize = $true
-    $logLabel.Location = New-Object System.Drawing.Point(22, 295)
+    $logLabel.Location = New-Object System.Drawing.Point(16, 12)
 
     $logBox = New-Object System.Windows.Forms.TextBox
     $logBox.Multiline = $true
     $logBox.ScrollBars = "Vertical"
     $logBox.ReadOnly = $true
-    $logBox.BackColor = [System.Drawing.Color]::FromArgb(13, 17, 23)
-    $logBox.ForeColor = [System.Drawing.Color]::FromArgb(186, 232, 255)
+    $logBox.BackColor = [System.Drawing.Color]::FromArgb(250, 251, 254)
+    $logBox.ForeColor = [System.Drawing.Color]::FromArgb(34, 44, 64)
     $logBox.BorderStyle = "FixedSingle"
-    $logBox.Font = New-Object System.Drawing.Font("Consolas", 10)
-    $logBox.Location = New-Object System.Drawing.Point(22, 320)
-    $logBox.Size = New-Object System.Drawing.Size(840, 240)
+    $logBox.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 10)
+    $logBox.Location = New-Object System.Drawing.Point(16, 38)
+    $logBox.Size = New-Object System.Drawing.Size(895, 180)
+    $logBox.Anchor = "Top,Bottom,Left,Right"
+
+    $logPanel.Controls.AddRange(@($logLabel, $logBox))
 
     $runAction = {
         param([scriptblock]$Action)
@@ -219,7 +288,7 @@ function Show-WinUtilStyleInstaller {
             & $Action
         } catch {
             Write-UiLog -LogBox $logBox -Message ("錯誤：" + $_.Exception.Message)
-            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "安裝錯誤", "OK", "Error") | Out-Null
+            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "操作失敗", "OK", "Error") | Out-Null
         } finally {
             $form.Cursor = [System.Windows.Forms.Cursors]::Default
         }
@@ -254,13 +323,9 @@ function Show-WinUtilStyleInstaller {
 
     $btnExit.Add_Click({ $form.Close() })
 
-    $form.Controls.AddRange(@(
-        $title, $sub, $repoLabel, $repoBox, $pathLabel, $pathBox,
-        $btnInstall, $btnReinstall, $btnUninstall, $btnOpen, $btnExit,
-        $logLabel, $logBox
-    ))
+    $form.Controls.AddRange(@($header, $configPanel, $actionPanel, $logPanel))
 
-    Write-UiLog -LogBox $logBox -Message "介面已就緒，請選擇操作。"
+    Write-UiLog -LogBox $logBox -Message "介面已就緒，請選擇要執行的項目。"
     [void]$form.ShowDialog()
 }
 
