@@ -1,0 +1,14 @@
+﻿[package]
+name = "password_recovery_rust"
+version = "2.0.0"
+edition = "2021"
+authors = ["jolin"]
+description = "Password recovery CLI for ZIP/RAR/7z archives, fully implemented in Rust"
+license = "MIT"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
