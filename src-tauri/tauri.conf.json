@@ -1,7 +1,7 @@
-﻿{
+{
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "壓縮檔密碼解鎖工具",
-  "version": "0.1.0",
+  "productName": "CipherBreak",
+  "version": "1.0.0",
   "identifier": "com.kiziray.passwordunlocker",
   "build": {
     "frontendDist": "../ui"
@@ -9,9 +9,11 @@
   "app": {
     "windows": [
       {
-        "title": "壓縮檔密碼解鎖工具",
-        "width": 1100,
-        "height": 760,
+        "title": "CipherBreak - 壓縮檔密碼解鎖工具",
+        "width": 1200,
+        "height": 820,
+        "minWidth": 800,
+        "minHeight": 600,
         "resizable": true,
         "center": true
       }

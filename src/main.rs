@@ -1,7 +1,7 @@
-﻿use std::env;
+use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
