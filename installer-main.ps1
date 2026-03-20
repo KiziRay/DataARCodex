@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     CipherBreak — 壓縮檔密碼解鎖工具 (WPF GUI)
 .DESCRIPTION
@@ -6,8 +6,8 @@
 #>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$script:Repo = "KiziRay/DataARCodex"
+$script:Repo = if ($env:PRR_REPO) { $env:PRR_REPO } else { "KiziRay/DataARCodex" }
+$script:Ref = if ($env:PRR_REF) { $env:PRR_REF } else { "main" }
 $script:DefaultInstall = "$env:LOCALAPPDATA\PasswordRecoveryRust"
 $script:SettingsFile = "$env:LOCALAPPDATA\CipherBreak\settings.json"
 
@@ -25,7 +25,7 @@ function Ensure-Sta {
             "-NoProfile","-ExecutionPolicy","Bypass","-STA","-File",$PSCommandPath
         ) | Out-Null
     } else {
-        $cmd = "`$env:CB_STA='1'; iex ((irm 'https://raw.githubusercontent.com/$script:Repo/main/installer-main.ps1').TrimStart([char]0xFEFF))"
+        $cmd = "`$env:CB_STA='1'; irm 'https://raw.githubusercontent.com/$script:Repo/$script:Ref/installer-main.ps1' | iex"
         Start-Process powershell.exe -ArgumentList @(
             "-NoProfile","-ExecutionPolicy","Bypass","-STA","-Command",$cmd
         ) | Out-Null
@@ -587,13 +587,13 @@ function Show-CipherBreak {
         $exe = Find-CbExe
         if (-not $exe) { Log "✗ CLI 工具未安裝，請先到「安裝管理」安裝"; return }
 
-        $cmdArgs = @("extract-hash", "--archive", $archive, "--out", ($txtExtHashOut.Text.Trim()))
-        if ($txtExtJohnDir.Text.Trim()) { $cmdArgs += @("--john-dir", $txtExtJohnDir.Text.Trim()) }
-        if ($txtExtPerl.Text.Trim())    { $cmdArgs += @("--perl", $txtExtPerl.Text.Trim()) }
+        $args = @("extract-hash", "--archive", $archive, "--out", ($txtExtHashOut.Text.Trim()))
+        if ($txtExtJohnDir.Text.Trim()) { $args += @("--john-dir", $txtExtJohnDir.Text.Trim()) }
+        if ($txtExtPerl.Text.Trim())    { $args += @("--perl", $txtExtPerl.Text.Trim()) }
 
         Log "▸ 提取 Hash..."
         try {
-            $result = & $exe @cmdArgs 2>&1 | Out-String
+            $result = & $exe @args 2>&1 | Out-String
             Log $result.Trim()
 
             if ($result -match "hash_file:\s*(.+)") {
@@ -615,13 +615,13 @@ function Show-CipherBreak {
         $exe = Find-CbExe
         if (-not $exe) { Log "✗ CLI 工具未安裝"; return }
 
-        $cmdArgs = @("john-crack", "--hash-file", $hashFile)
-        if ($txtJohnWordlist.Text.Trim()) { $cmdArgs += @("--wordlist", $txtJohnWordlist.Text.Trim()) }
-        if ($txtJohnExe.Text.Trim())      { $cmdArgs += @("--john", $txtJohnExe.Text.Trim()) }
+        $args = @("john-crack", "--hash-file", $hashFile)
+        if ($txtJohnWordlist.Text.Trim()) { $args += @("--wordlist", $txtJohnWordlist.Text.Trim()) }
+        if ($txtJohnExe.Text.Trim())      { $args += @("--john", $txtJohnExe.Text.Trim()) }
 
         Log "▸ 啟動 John the Ripper（新視窗）..."
         try {
-            Start-Process -FilePath $exe -ArgumentList $cmdArgs
+            Start-Process -FilePath $exe -ArgumentList $args
             Log "✓ John 已在獨立視窗中執行"
         } catch {
             Log "✗ $($_.Exception.Message)"
@@ -636,27 +636,22 @@ function Show-CipherBreak {
         $exe = Find-CbExe
         if (-not $exe) { Log "✗ CLI 工具未安裝"; return }
 
-        $cmdArgs = @("hashcat-crack", "--hash-file", $hashFile, "--mode", $txtHcMode.Text.Trim(), "--attack", $txtHcAttack.Text.Trim())
-        if ($txtHcMask.Text.Trim())     { $cmdArgs += @("--mask", $txtHcMask.Text.Trim()) }
-        if ($txtHcWordlist.Text.Trim()) { $cmdArgs += @("--wordlist", $txtHcWordlist.Text.Trim()) }
-        if ($txtHcExe.Text.Trim())      { $cmdArgs += @("--hashcat", $txtHcExe.Text.Trim()) }
+        $args = @("hashcat-crack", "--hash-file", $hashFile, "--mode", $txtHcMode.Text.Trim(), "--attack", $txtHcAttack.Text.Trim())
+        if ($txtHcMask.Text.Trim())     { $args += @("--mask", $txtHcMask.Text.Trim()) }
+        if ($txtHcWordlist.Text.Trim()) { $args += @("--wordlist", $txtHcWordlist.Text.Trim()) }
+        if ($txtHcExe.Text.Trim())      { $args += @("--hashcat", $txtHcExe.Text.Trim()) }
 
         Log "▸ 啟動 Hashcat GPU（新視窗）..."
         try {
-            Start-Process -FilePath $exe -ArgumentList $cmdArgs
+            Start-Process -FilePath $exe -ArgumentList $args
             Log "✓ Hashcat 已在獨立視窗中執行"
         } catch {
             Log "✗ $($_.Exception.Message)"
         }
     })
 
-    # ── Event: Quick Mode (async via DispatcherTimer) ──
-    $script:_qProc = $null
+    # ── Event: Quick Mode ──
     (F "btnQuick").Add_Click({
-        if ($null -ne $script:_qProc -and -not $script:_qProc.HasExited) {
-            Log "⚠ 快速模式仍在執行中"; return
-        }
-
         $archive = $txtQuickArchive.Text.Trim()
         if (-not $archive) { Log "✗ 請輸入壓縮檔路徑"; return }
 
@@ -669,64 +664,44 @@ function Show-CipherBreak {
         if ($rbDict.IsChecked) {
             $dict = $txtQuickDict.Text.Trim()
             if (-not $dict) { Log "✗ 請輸入字典檔路徑"; return }
-            $cmdArgs = @("recover", "--archive", $archive, "--dict", $dict, "--threads", $threads)
+            $args = @("recover", "--archive", $archive, "--dict", $dict, "--threads", $threads)
         } else {
             $mask = $txtQuickMask.Text.Trim()
             if (-not $mask) { Log "✗ 請輸入 Mask"; return }
-            $cmdArgs = @("recover", "--archive", $archive, "--mask", $mask, "--threads", $threads)
+            $args = @("recover", "--archive", $archive, "--mask", $mask, "--threads", $threads)
         }
 
-        Log "▸ 快速模式執行中..."
+        Log "▸ 快速模式執行中（可能需要一段時間）..."
         $lblStatus.Text = "● 執行中..."
         $lblStatus.Foreground = [System.Windows.Media.Brushes]::Gold
-        (F "btnQuick").IsEnabled = $false
 
         try {
-            $script:_qTmpOut = [System.IO.Path]::GetTempFileName()
-            $script:_qTmpErr = [System.IO.Path]::GetTempFileName()
-            $script:_qProc = Start-Process -FilePath $exe -ArgumentList $cmdArgs -NoNewWindow -PassThru `
-                              -RedirectStandardOutput $script:_qTmpOut -RedirectStandardError $script:_qTmpErr
+            $tempOut = [System.IO.Path]::GetTempFileName()
+            $tempErr = [System.IO.Path]::GetTempFileName()
+            $proc = Start-Process -FilePath $exe -ArgumentList $args -NoNewWindow -PassThru `
+                     -RedirectStandardOutput $tempOut -RedirectStandardError $tempErr -Wait
 
-            $script:_qTimer = New-Object System.Windows.Threading.DispatcherTimer
-            $script:_qTimer.Interval = [TimeSpan]::FromSeconds(1)
-            $script:_qTimer.Add_Tick({
-                if ($null -eq $script:_qProc -or -not $script:_qProc.HasExited) { return }
-                $script:_qTimer.Stop()
+            $stdout = Get-Content $tempOut -Raw -ErrorAction SilentlyContinue
+            $stderr = Get-Content $tempErr -Raw -ErrorAction SilentlyContinue
+            Remove-Item $tempOut, $tempErr -Force -ErrorAction SilentlyContinue
 
-                $so = ""; $se = ""
-                if (Test-Path $script:_qTmpOut) { $so = (Get-Content $script:_qTmpOut -Raw -ErrorAction SilentlyContinue) }
-                if (Test-Path $script:_qTmpErr) { $se = (Get-Content $script:_qTmpErr -Raw -ErrorAction SilentlyContinue) }
-                Remove-Item $script:_qTmpOut, $script:_qTmpErr -Force -ErrorAction SilentlyContinue
+            if ($stdout) { Log $stdout.Trim() }
+            if ($stderr) { Log "⚠ $($stderr.Trim())" }
 
-                if ($so) { Log $so.Trim() }
-                if ($se) { Log ("⚠ " + $se.Trim()) }
-
-                if ($so -match "password:\s*(.+)") {
-                    $foundPwd = $Matches[1].Trim()
-                    Log ("✓ 密碼已找到: " + $foundPwd)
-                    [System.Windows.Clipboard]::SetText($foundPwd)
-                    Log "✓ 已複製到剪貼簿"
-                    [System.Windows.MessageBox]::Show(
-                        ("密碼: " + $foundPwd),
-                        "密碼已找到",
-                        [System.Windows.MessageBoxButton]::OK,
-                        [System.Windows.MessageBoxImage]::Information
-                    ) | Out-Null
-                } elseif ($so -match "not_found") {
-                    Log "⚠ 字典/Mask 搜尋完畢，未找到密碼"
-                }
-
-                $script:_qProc = $null
-                $lblStatus.Text = "● 就緒"
-                $lblStatus.Foreground = [System.Windows.Media.Brushes]::MediumAquamarine
-                (F "btnQuick").IsEnabled = $true
-            })
-            $script:_qTimer.Start()
+            if ($stdout -match "password:\s*(.+)") {
+                $pwd = $Matches[1].Trim()
+                Log "✓ 密碼已找到: $pwd"
+                [System.Windows.Clipboard]::SetText($pwd)
+                Log "✓ 已複製到剪貼簿"
+                [System.Windows.MessageBox]::Show("密碼: $pwd`n`n已複製到剪貼簿", "密碼已找到！", "OK", "Information") | Out-Null
+            } elseif ($stdout -match "not_found") {
+                Log "⚠ 字典/Mask 搜尋完畢，未找到密碼"
+            }
         } catch {
-            Log ("✗ " + $_.Exception.Message)
+            Log "✗ $($_.Exception.Message)"
+        } finally {
             $lblStatus.Text = "● 就緒"
             $lblStatus.Foreground = [System.Windows.Media.Brushes]::MediumAquamarine
-            (F "btnQuick").IsEnabled = $true
         }
     })
 
