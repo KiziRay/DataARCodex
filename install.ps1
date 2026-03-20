@@ -9,7 +9,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$repo = "KiziRay/DataARCodex"
+$repo = if ($env:PRR_REPO) { $env:PRR_REPO } else { "KiziRay/DataARCodex" }
+$ref = if ($env:PRR_REF) { $env:PRR_REF } else { "main" }
 $scriptPath = "installer-main.ps1"
-$mainScript = "https://raw.githubusercontent.com/$repo/main/$scriptPath"
+$mainScript = "https://raw.githubusercontent.com/$repo/$ref/$scriptPath"
 Invoke-RestMethod $mainScript | Invoke-Expression

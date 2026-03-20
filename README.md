@@ -52,6 +52,12 @@ password_recovery_rust.exe recover --archive C:\target\secret.zip --dict C:\word
 irm https://raw.githubusercontent.com/KiziRay/DataARCodex/main/install.ps1 | iex
 ```
 
+若要開啟特定分支或 tag（例如尚未合併到 `main` 的版本）：
+```powershell
+$env:PRR_REF = "your-branch-or-tag"
+irm https://raw.githubusercontent.com/KiziRay/DataARCodex/your-branch-or-tag/install.ps1 | iex
+```
+
 ## Tauri 桌面 GUI（B 路線）
 - 位置：`src-tauri/`（Rust backend）+ `ui/`（前端）
 - 前端採繁體中文現代化介面，對應：

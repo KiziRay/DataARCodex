@@ -1,344 +1,837 @@
+﻿<#
+.SYNOPSIS
+    CipherBreak — 壓縮檔密碼解鎖工具 (WPF GUI)
+.DESCRIPTION
+    irm https://raw.githubusercontent.com/KiziRay/DataARCodex/main/install.ps1 | iex
+#>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$script:InstallerRepo = "KiziRay/DataARCodex"
+$script:Repo = if ($env:PRR_REPO) { $env:PRR_REPO } else { "KiziRay/DataARCodex" }
+$script:Ref = if ($env:PRR_REF) { $env:PRR_REF } else { "main" }
+$script:DefaultInstall = "$env:LOCALAPPDATA\PasswordRecoveryRust"
+$script:SettingsFile = "$env:LOCALAPPDATA\CipherBreak\settings.json"
 
-function Ensure-StaGuiSession {
-    $state = [Threading.Thread]::CurrentThread.GetApartmentState()
-    if ($state -eq [Threading.ApartmentState]::STA) {
+# ══════════════════════════════════════════
+#  STA Mode
+# ══════════════════════════════════════════
+function Ensure-Sta {
+    if ([Threading.Thread]::CurrentThread.GetApartmentState() -eq [Threading.ApartmentState]::STA) {
         return $false
     }
-
-    if ($env:PRR_GUI_STA -eq "1") {
-        throw "無法在 STA 模式啟動 GUI。"
+    if ($env:CB_STA -eq "1") { throw "Cannot switch to STA. GUI must run in STA." }
+    $env:CB_STA = "1"
+    if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
+        Start-Process powershell.exe -ArgumentList @(
+            "-NoProfile","-ExecutionPolicy","Bypass","-STA","-File",$PSCommandPath
+        ) | Out-Null
+    } else {
+        $cmd = "`$env:CB_STA='1'; irm 'https://raw.githubusercontent.com/$script:Repo/$script:Ref/installer-main.ps1' | iex"
+        Start-Process powershell.exe -ArgumentList @(
+            "-NoProfile","-ExecutionPolicy","Bypass","-STA","-Command",$cmd
+        ) | Out-Null
     }
-
-    $env:PRR_GUI_STA = "1"
-    $cmd = @"
-`$env:PRR_GUI_STA='1'
-irm 'https://raw.githubusercontent.com/$script:InstallerRepo/main/installer-main.ps1' | iex
-"@
-
-    Start-Process -FilePath "powershell.exe" -ArgumentList @(
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-STA",
-        "-Command", $cmd
-    ) | Out-Null
-
     return $true
 }
 
-function Write-UiLog {
-    param(
-        [System.Windows.Forms.TextBox]$LogBox,
-        [string]$Message
-    )
-
-    $time = Get-Date -Format "HH:mm:ss"
-    $line = "[$time] $Message"
-    if ($null -ne $LogBox) {
-        $LogBox.AppendText($line + [Environment]::NewLine)
-        $LogBox.SelectionStart = $LogBox.TextLength
-        $LogBox.ScrollToCaret()
-    } else {
-        Write-Host $line
+# ══════════════════════════════════════════
+#  Settings
+# ══════════════════════════════════════════
+function Get-CbSettings {
+    if (Test-Path $script:SettingsFile) {
+        try { return (Get-Content $script:SettingsFile -Raw | ConvertFrom-Json) }
+        catch { return [PSCustomObject]@{} }
     }
+    return [PSCustomObject]@{}
+}
+function Save-CbSettings($obj) {
+    $dir = Split-Path $script:SettingsFile
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $obj | ConvertTo-Json -Depth 4 | Set-Content $script:SettingsFile -Encoding UTF8
 }
 
-function Uninstall-PasswordRecoveryRust {
-    [CmdletBinding()]
-    param(
-        [string]$InstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust",
-        [System.Windows.Forms.TextBox]$LogBox
-    )
-
-    if (Test-Path $InstallPath) {
-        Remove-Item -Path $InstallPath -Recurse -Force
-        Write-UiLog -LogBox $LogBox -Message "已移除：$InstallPath"
-    } else {
-        Write-UiLog -LogBox $LogBox -Message "尚未安裝：$InstallPath"
-    }
+# ══════════════════════════════════════════
+#  Find CLI exe
+# ══════════════════════════════════════════
+function Find-CbExe {
+    $s = Get-CbSettings
+    $base = if ($s.PSObject.Properties['installPath'] -and $s.installPath) { $s.installPath } else { $script:DefaultInstall }
+    $exe = Join-Path $base "password_recovery_rust.exe"
+    if (Test-Path $exe) { return $exe }
+    $inPath = Get-Command "password_recovery_rust" -ErrorAction SilentlyContinue
+    if ($inPath) { return $inPath.Source }
+    return $null
 }
 
-function Install-PasswordRecoveryRust {
-    [CmdletBinding()]
-    param(
-        [string]$Repo = "KiziRay/DataARCodex",
-        [string]$InstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust",
-        [switch]$Force,
-        [System.Windows.Forms.TextBox]$LogBox
-    )
+# ══════════════════════════════════════════
+#  Main GUI
+# ══════════════════════════════════════════
+function Show-CipherBreak {
+    Add-Type -AssemblyName PresentationFramework
+    Add-Type -AssemblyName PresentationCore
+    Add-Type -AssemblyName WindowsBase
 
-    Write-UiLog -LogBox $LogBox -Message "準備從儲存庫安裝：$Repo"
+    $xaml = @'
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="CipherBreak — 壓縮檔密碼解鎖工具"
+    Width="1120" Height="790" MinWidth="820" MinHeight="620"
+    WindowStartupLocation="CenterScreen"
+    Background="#0f1728" Foreground="#e2e8f0"
+    FontFamily="Microsoft JhengHei UI, Segoe UI" FontSize="13">
 
-    if (Test-Path $InstallPath) {
-        if (-not $Force) {
-            throw "安裝路徑已存在：$InstallPath。請使用 -Force 覆蓋。"
-        }
-        Write-UiLog -LogBox $LogBox -Message "清除既有路徑：$InstallPath"
-        Remove-Item -Path $InstallPath -Recurse -Force
+  <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="b2v"/>
+
+    <!-- Dark TextBox -->
+    <Style x:Key="Input" TargetType="TextBox">
+      <Setter Property="Foreground" Value="#e2e8f0"/>
+      <Setter Property="CaretBrush" Value="#e2e8f0"/>
+      <Setter Property="FontFamily" Value="Cascadia Code,Consolas,Courier New"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TextBox">
+            <Border x:Name="bd" Background="#0d1117" BorderBrush="#2d3654"
+                    BorderThickness="1" CornerRadius="6" Padding="10,8">
+              <ScrollViewer x:Name="PART_ContentHost" Focusable="False"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="#6366f1"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Primary Button (set Background per-button to change color) -->
+    <Style x:Key="Btn" TargetType="Button">
+      <Setter Property="Background" Value="#6366f1"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Grid>
+              <Border x:Name="bg" Background="{TemplateBinding Background}" CornerRadius="6"/>
+              <Border x:Name="ov" Background="White" CornerRadius="6" Opacity="0"/>
+              <Border CornerRadius="6" Padding="22,10">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="ov" Property="Opacity" Value="0.10"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="ov" Property="Opacity" Value="0.18"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="bg" Property="Opacity" Value="0.4"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Ghost Button -->
+    <Style x:Key="BtnGhost" TargetType="Button">
+      <Setter Property="Foreground" Value="#94a3b8"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="Transparent" BorderBrush="#2d3654"
+                    BorderThickness="1" CornerRadius="5" Padding="12,5">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="#64748b"/>
+                <Setter Property="Foreground" Value="#e2e8f0"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Tab Nav RadioButton -->
+    <Style x:Key="TabBtn" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#64748b"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="bd" Background="Transparent" CornerRadius="6"
+                    Padding="15,8" Margin="0,0,3,0">
+              <ContentPresenter HorizontalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#6366f1"/>
+                <Setter Property="Foreground" Value="White"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#1e293b"/>
+              </Trigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsChecked" Value="True"/>
+                  <Condition Property="IsMouseOver" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="bd" Property="Background" Value="#818cf8"/>
+              </MultiTrigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Mode Toggle RadioButton -->
+    <Style x:Key="ModeBtn" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#64748b"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="bd" Background="Transparent" BorderBrush="#2d3654"
+                    BorderThickness="1" Padding="16,7" Margin="0,0,-1,0">
+              <ContentPresenter HorizontalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#1e1b4b"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="#6366f1"/>
+                <Setter Property="Foreground" Value="#a5b4fc"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <DockPanel>
+    <!-- ═══ Header ═══ -->
+    <Border DockPanel.Dock="Top" Padding="22,14" BorderBrush="#1a2035" BorderThickness="0,0,0,1">
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+          <GradientStop Color="#16103a" Offset="0"/>
+          <GradientStop Color="#0c1a30" Offset="1"/>
+        </LinearGradientBrush>
+      </Border.Background>
+      <Grid>
+        <StackPanel Orientation="Horizontal">
+          <Border Background="#6366f1" CornerRadius="10" Width="40" Height="40" Margin="0,0,14,0">
+            <TextBlock Text="&#x1F512;" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock FontSize="20" FontWeight="Bold">
+              <TextBlock.Foreground>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                  <GradientStop Color="#e2e8f0" Offset="0"/>
+                  <GradientStop Color="#22d3ee" Offset="1"/>
+                </LinearGradientBrush>
+              </TextBlock.Foreground>
+              CipherBreak
+            </TextBlock>
+            <TextBlock Text="壓縮檔密碼解鎖工具 · ZIP / RAR / 7z" FontSize="11" Foreground="#4b5563"/>
+          </StackPanel>
+        </StackPanel>
+        <Border HorizontalAlignment="Right" VerticalAlignment="Center"
+                Background="#071a12" CornerRadius="12" Padding="12,4" BorderBrush="#14532d" BorderThickness="1">
+          <TextBlock Name="lblStatus" Text="● 就緒" Foreground="#10b981" FontSize="11" FontWeight="SemiBold"/>
+        </Border>
+      </Grid>
+    </Border>
+
+    <!-- ═══ Tab Nav ═══ -->
+    <Border DockPanel.Dock="Top" Background="#111827" Padding="18,6" BorderBrush="#1a2035" BorderThickness="0,0,0,1">
+      <WrapPanel>
+        <RadioButton Name="tabExtract"  GroupName="nav" IsChecked="True" Content="提取 Hash"   Style="{StaticResource TabBtn}"/>
+        <RadioButton Name="tabJohn"     GroupName="nav" Content="John 破解"   Style="{StaticResource TabBtn}"/>
+        <RadioButton Name="tabHashcat"  GroupName="nav" Content="Hashcat GPU" Style="{StaticResource TabBtn}"/>
+        <RadioButton Name="tabQuick"    GroupName="nav" Content="快速模式"    Style="{StaticResource TabBtn}"/>
+        <RadioButton Name="tabInstall"  GroupName="nav" Content="安裝管理"    Style="{StaticResource TabBtn}" Margin="14,0,0,0"/>
+        <RadioButton Name="tabSettings" GroupName="nav" Content="設定"        Style="{StaticResource TabBtn}"/>
+      </WrapPanel>
+    </Border>
+
+    <!-- ═══ Log Panel ═══ -->
+    <Border DockPanel.Dock="Bottom" Background="#080c14" BorderBrush="#1a2035" BorderThickness="0,1,0,0">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Padding="14,6" BorderBrush="#111520" BorderThickness="0,0,0,1">
+          <Grid>
+            <TextBlock Text="▶  執 行 日 誌" Foreground="#374151" FontSize="11" FontWeight="Bold"
+                       VerticalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+              <Button Name="btnCopyLog"  Content="複製" Style="{StaticResource BtnGhost}" Margin="0,0,6,0"/>
+              <Button Name="btnClearLog" Content="清除" Style="{StaticResource BtnGhost}"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+        <TextBox Name="txtLog" IsReadOnly="True" TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto" AcceptsReturn="True"
+                 Background="#080c14" Foreground="#94a3b8" BorderThickness="0"
+                 FontFamily="Cascadia Code,Consolas,Courier New" FontSize="12"
+                 Padding="14,8" Height="160"/>
+      </DockPanel>
+    </Border>
+
+    <!-- ═══ Content ═══ -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Background="#0f1728" Padding="0">
+      <Grid Margin="28,22">
+
+        <!-- ── Panel: Extract Hash ── -->
+        <StackPanel Visibility="{Binding IsChecked, ElementName=tabExtract, Converter={StaticResource b2v}}">
+          <TextBlock Text="提取 Hash" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
+          <TextBlock Text="使用 John 工具鏈（zip2john / rar2john / 7z2john）提取壓縮檔密碼雜湊" FontSize="12" Foreground="#64748b" Margin="0,0,0,20"/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="壓縮檔路徑 *" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtExtArchive" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,14">
+              <TextBlock Text="輸出 Hash 檔" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtExtHashOut" Text="hash.txt" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="John 目錄" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtExtJohnDir" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,14">
+              <TextBlock Text="Perl 路徑（7z 需要）" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtExtPerl" Style="{StaticResource Input}"/>
+            </StackPanel>
+          </Grid>
+          <Button Name="btnExtract" Content="提取 Hash" Style="{StaticResource Btn}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+        </StackPanel>
+
+        <!-- ── Panel: John Crack ── -->
+        <StackPanel Visibility="{Binding IsChecked, ElementName=tabJohn, Converter={StaticResource b2v}}">
+          <TextBlock Text="John the Ripper 字典破解" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
+          <TextBlock Text="使用 John the Ripper 進行 CPU 字典攻擊（將在新視窗中執行）" FontSize="12" Foreground="#64748b" Margin="0,0,0,20"/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="Hash 檔案 *" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtJohnHash" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Margin="0,0,0,14">
+              <TextBlock Text="字典檔" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtJohnWordlist" Style="{StaticResource Input}"/>
+            </StackPanel>
+          </Grid>
+          <StackPanel Margin="0,0,0,14">
+            <TextBlock Text="john.exe 路徑" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+            <TextBox Name="txtJohnExe" Style="{StaticResource Input}"/>
+          </StackPanel>
+          <Button Name="btnJohn" Content="開始破解" Style="{StaticResource Btn}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+        </StackPanel>
+
+        <!-- ── Panel: Hashcat GPU ── -->
+        <StackPanel Visibility="{Binding IsChecked, ElementName=tabHashcat, Converter={StaticResource b2v}}">
+          <TextBlock Text="Hashcat GPU 破解" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
+          <TextBlock Text="使用 GPU 加速的 Hashcat 進行高速破解（將在新視窗中執行）" FontSize="12" Foreground="#64748b" Margin="0,0,0,20"/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="Hash 檔案 *" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtHcHash" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,14">
+              <TextBlock FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4">
+                <Run Text="模式 -m"/><Run Text="  (11600=7z  13000=RAR5  13600=WinZip  17200=PKZIP  23700=RAR3)" Foreground="#374151" FontSize="10"/>
+              </TextBlock>
+              <TextBox Name="txtHcMode" Text="13000" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="攻擊模式 -a  (0=字典  3=暴力/Mask)" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtHcAttack" Text="3" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,14">
+              <TextBlock Text="Mask（-a 3 時）" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtHcMask" Text="?d?d?d?d?d?d?d?d" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="字典檔（-a 0 時）" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtHcWordlist" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,0,0,14">
+              <TextBlock Text="hashcat.exe 路徑" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtHcExe" Style="{StaticResource Input}"/>
+            </StackPanel>
+          </Grid>
+          <Button Name="btnHashcat" Content="開始 GPU 破解" Style="{StaticResource Btn}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+        </StackPanel>
+
+        <!-- ── Panel: Quick Mode ── -->
+        <StackPanel Visibility="{Binding IsChecked, ElementName=tabQuick, Converter={StaticResource b2v}}">
+          <TextBlock Text="快速模式" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
+          <TextBlock Text="使用內建 7z 驗證引擎，不需要 John 或 Hashcat（需要 7z 在 PATH）" FontSize="12" Foreground="#64748b" Margin="0,0,0,20"/>
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+              <TextBlock Text="壓縮檔路徑 *" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtQuickArchive" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Text="執行緒數" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtQuickThreads" Text="8" Style="{StaticResource Input}"/>
+            </StackPanel>
+          </Grid>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+            <RadioButton Name="rbDict" GroupName="qmode" IsChecked="True" Content="字典攻擊" Style="{StaticResource ModeBtn}"/>
+            <RadioButton Name="rbMask" GroupName="qmode" Content="Mask 攻擊" Style="{StaticResource ModeBtn}"/>
+          </StackPanel>
+          <StackPanel Visibility="{Binding IsChecked, ElementName=rbDict, Converter={StaticResource b2v}}" Margin="0,0,0,14">
+            <TextBlock Text="字典檔路徑 *" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+            <TextBox Name="txtQuickDict" Style="{StaticResource Input}"/>
+          </StackPanel>
+          <StackPanel Visibility="{Binding IsChecked, ElementName=rbMask, Converter={StaticResource b2v}}">
+            <StackPanel Margin="0,0,0,10">
+              <TextBlock Text="Mask 模式 *" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtQuickMask" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <Border Background="#0a1a20" BorderBrush="#164e63" BorderThickness="1" CornerRadius="6" Padding="12,8">
+              <TextBlock FontSize="11" Foreground="#22d3ee">
+                <Run Text="Mask 語法："/><Run Text="?d" FontWeight="Bold"/><Run Text=" 數字 · "/>
+                <Run Text="?l" FontWeight="Bold"/><Run Text=" 小寫 · "/>
+                <Run Text="?u" FontWeight="Bold"/><Run Text=" 大寫 · "/>
+                <Run Text="?s" FontWeight="Bold"/><Run Text=" 符號 · "/>
+                <Run Text="?a" FontWeight="Bold"/><Run Text=" 全部"/>
+              </TextBlock>
+            </Border>
+          </StackPanel>
+          <Button Name="btnQuick" Content="開始破解" Style="{StaticResource Btn}" HorizontalAlignment="Left" Margin="0,14,0,0"/>
+        </StackPanel>
+
+        <!-- ── Panel: Install ── -->
+        <StackPanel Visibility="{Binding IsChecked, ElementName=tabInstall, Converter={StaticResource b2v}}">
+          <TextBlock Text="安裝管理" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
+          <TextBlock Text="從 GitHub Releases 安裝或更新 CLI 工具（password_recovery_rust.exe）" FontSize="12" Foreground="#64748b" Margin="0,0,0,20"/>
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+              <TextBlock Text="GitHub Repo" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtInstRepo" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Text="安裝路徑" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtInstPath" Style="{StaticResource Input}"/>
+            </StackPanel>
+          </Grid>
+          <WrapPanel>
+            <Button Name="btnInstall"   Content="安裝" Style="{StaticResource Btn}" Background="#10b981" Margin="0,0,8,0"/>
+            <Button Name="btnReinstall" Content="重新安裝" Style="{StaticResource Btn}" Background="#3b82f6" Margin="0,0,8,0"/>
+            <Button Name="btnUninstall" Content="移除" Style="{StaticResource Btn}" Background="#ef4444" Margin="0,0,8,0"/>
+            <Button Name="btnOpenDir"   Content="開啟目錄" Style="{StaticResource Btn}" Background="#475569"/>
+          </WrapPanel>
+          <Border Background="#0d1117" CornerRadius="6" Padding="14,10" Margin="0,18,0,0" BorderBrush="#2d3654" BorderThickness="1">
+            <TextBlock Name="lblExeStatus" FontSize="12" Foreground="#64748b" TextWrapping="Wrap"/>
+          </Border>
+        </StackPanel>
+
+        <!-- ── Panel: Settings ── -->
+        <StackPanel Visibility="{Binding IsChecked, ElementName=tabSettings, Converter={StaticResource b2v}}">
+          <TextBlock Text="工具路徑設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
+          <TextBlock Text="預設工具路徑會自動填入對應欄位，儲存在本機" FontSize="12" Foreground="#64748b" Margin="0,0,0,20"/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="John 工具目錄" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtSetJohnDir" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,14">
+              <TextBlock Text="john.exe 路徑" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtSetJohnExe" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="hashcat.exe 路徑" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtSetHcExe" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,14">
+              <TextBlock Text="Perl 路徑" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtSetPerl" Style="{StaticResource Input}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,0,14">
+              <TextBlock Text="預設執行緒數" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,4"/>
+              <TextBox Name="txtSetThreads" Text="8" Style="{StaticResource Input}"/>
+            </StackPanel>
+          </Grid>
+          <Button Name="btnSaveSettings" Content="儲存設定" Style="{StaticResource Btn}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+          <TextBlock Text="設定儲存在本機，下次開啟時自動載入。" FontSize="11" Foreground="#374151" Margin="0,12,0,0"/>
+        </StackPanel>
+
+      </Grid>
+    </ScrollViewer>
+  </DockPanel>
+</Window>
+'@
+
+    [xml]$doc = $xaml
+    $reader = New-Object System.Xml.XmlNodeReader $doc
+    $w = [System.Windows.Markup.XamlReader]::Load($reader)
+
+    # ── Find named elements ──
+    function F($n) { $w.FindName($n) }
+
+    $txtLog         = F "txtLog"
+    $lblStatus      = F "lblStatus"
+    $lblExeStatus   = F "lblExeStatus"
+    $txtExtArchive  = F "txtExtArchive"
+    $txtExtHashOut  = F "txtExtHashOut"
+    $txtExtJohnDir  = F "txtExtJohnDir"
+    $txtExtPerl     = F "txtExtPerl"
+    $txtJohnHash    = F "txtJohnHash"
+    $txtJohnWordlist= F "txtJohnWordlist"
+    $txtJohnExe     = F "txtJohnExe"
+    $txtHcHash      = F "txtHcHash"
+    $txtHcMode      = F "txtHcMode"
+    $txtHcAttack    = F "txtHcAttack"
+    $txtHcMask      = F "txtHcMask"
+    $txtHcWordlist  = F "txtHcWordlist"
+    $txtHcExe       = F "txtHcExe"
+    $txtQuickArchive= F "txtQuickArchive"
+    $txtQuickThreads= F "txtQuickThreads"
+    $rbDict         = F "rbDict"
+    $txtQuickDict   = F "txtQuickDict"
+    $txtQuickMask   = F "txtQuickMask"
+    $txtInstRepo    = F "txtInstRepo"
+    $txtInstPath    = F "txtInstPath"
+    $txtSetJohnDir  = F "txtSetJohnDir"
+    $txtSetJohnExe  = F "txtSetJohnExe"
+    $txtSetHcExe    = F "txtSetHcExe"
+    $txtSetPerl     = F "txtSetPerl"
+    $txtSetThreads  = F "txtSetThreads"
+
+    # ── Logging ──
+    function Log([string]$msg) {
+        $t = Get-Date -Format "HH:mm:ss"
+        $txtLog.AppendText("[$t] $msg`n")
+        $txtLog.ScrollToEnd()
+        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke(
+            [System.Windows.Threading.DispatcherPriority]::Background, [action]{}
+        )
     }
 
-    New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
+    # ── Load settings & apply ──
+    $s = Get-CbSettings
+    $txtInstRepo.Text = $script:Repo
+    $txtInstPath.Text = $script:DefaultInstall
 
-    $api = "https://api.github.com/repos/$Repo/releases/latest"
-    Write-UiLog -LogBox $LogBox -Message "查詢最新版本資訊：$api"
-    $release = Invoke-RestMethod -Uri $api
-
-    $asset = $release.assets |
-        Where-Object { $_.name -match "windows" -and $_.name -match "x64" -and $_.name -match "\.zip$" } |
-        Select-Object -First 1
-
-    if (-not $asset) {
-        throw "最新版本找不到 Windows x64 的 zip 安裝檔。"
+    $propMap = @{
+        johnDir   = @($txtSetJohnDir,  $txtExtJohnDir)
+        johnExe   = @($txtSetJohnExe,  $txtJohnExe)
+        hashcatExe= @($txtSetHcExe,    $txtHcExe)
+        perl      = @($txtSetPerl,     $txtExtPerl)
+        threads   = @($txtSetThreads,  $txtQuickThreads)
     }
 
-    $zipPath = Join-Path $env:TEMP "password_recovery_rust_latest.zip"
-    Write-UiLog -LogBox $LogBox -Message "下載：$($asset.browser_download_url)"
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
-
-    Write-UiLog -LogBox $LogBox -Message "解壓縮至：$InstallPath"
-    Expand-Archive -Path $zipPath -DestinationPath $InstallPath -Force
-    Remove-Item $zipPath -Force
-
-    $launcher = Join-Path $InstallPath "run.ps1"
-@"
-`$exe = Join-Path `$PSScriptRoot 'password_recovery_rust.exe'
-if (-not (Test-Path `$exe)) { throw '找不到 password_recovery_rust.exe' }
-& `$exe `$args
-"@ | Set-Content -Path $launcher -Encoding UTF8
-
-    $uninstall = Join-Path $InstallPath "uninstall.ps1"
-@"
-Set-StrictMode -Version Latest
-`$ErrorActionPreference = 'Stop'
-Remove-Item -Path `"$InstallPath`" -Recurse -Force
-Write-Host '已解除安裝 PasswordRecoveryRust'
-"@ | Set-Content -Path $uninstall -Encoding UTF8
-
-    Write-UiLog -LogBox $LogBox -Message "安裝完成：$InstallPath"
-    Write-UiLog -LogBox $LogBox -Message "執行：& '$launcher' recover --archive <file> --dict <wordlist>"
-}
-
-function Show-WinUtilStyleInstaller {
-    [CmdletBinding()]
-    param(
-        [string]$DefaultRepo = "KiziRay/DataARCodex",
-        [string]$DefaultInstallPath = "$env:LOCALAPPDATA\PasswordRecoveryRust"
-    )
-
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
-    [System.Windows.Forms.Application]::EnableVisualStyles()
-
-    $bg = [System.Drawing.Color]::FromArgb(245, 247, 251)
-    $panelBg = [System.Drawing.Color]::White
-    $accent = [System.Drawing.Color]::FromArgb(32, 99, 220)
-    $muted = [System.Drawing.Color]::FromArgb(94, 104, 125)
-    $danger = [System.Drawing.Color]::FromArgb(196, 48, 43)
-
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text = "壓縮檔密碼解鎖工具安裝程式"
-    $form.StartPosition = "CenterScreen"
-    $form.Size = New-Object System.Drawing.Size(980, 700)
-    $form.MinimumSize = New-Object System.Drawing.Size(960, 680)
-    $form.BackColor = $bg
-    $form.ForeColor = [System.Drawing.Color]::FromArgb(20, 24, 33)
-    $form.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 10)
-
-    $header = New-Object System.Windows.Forms.Panel
-    $header.BackColor = $accent
-    $header.Location = New-Object System.Drawing.Point(0, 0)
-    $header.Size = New-Object System.Drawing.Size(980, 86)
-    $header.Anchor = "Top,Left,Right"
-
-    $title = New-Object System.Windows.Forms.Label
-    $title.Text = "壓縮檔密碼解鎖工具安裝中心"
-    $title.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 16, [System.Drawing.FontStyle]::Bold)
-    $title.AutoSize = $true
-    $title.ForeColor = [System.Drawing.Color]::White
-    $title.Location = New-Object System.Drawing.Point(24, 16)
-
-    $sub = New-Object System.Windows.Forms.Label
-    $sub.Text = "主要功能：ZIP/RAR/7z 密碼解鎖（每次執行指令都會開啟此介面）"
-    $sub.AutoSize = $true
-    $sub.ForeColor = [System.Drawing.Color]::FromArgb(226, 233, 245)
-    $sub.Location = New-Object System.Drawing.Point(26, 50)
-
-    $header.Controls.AddRange(@($title, $sub))
-
-    $configPanel = New-Object System.Windows.Forms.Panel
-    $configPanel.BackColor = $panelBg
-    $configPanel.Location = New-Object System.Drawing.Point(20, 104)
-    $configPanel.Size = New-Object System.Drawing.Size(930, 190)
-    $configPanel.Anchor = "Top,Left,Right"
-    $configPanel.BorderStyle = "FixedSingle"
-
-    $configTitle = New-Object System.Windows.Forms.Label
-    $configTitle.Text = "設定"
-    $configTitle.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 12, [System.Drawing.FontStyle]::Bold)
-    $configTitle.AutoSize = $true
-    $configTitle.Location = New-Object System.Drawing.Point(16, 14)
-
-    $repoLabel = New-Object System.Windows.Forms.Label
-    $repoLabel.Text = "來源倉庫"
-    $repoLabel.AutoSize = $true
-    $repoLabel.ForeColor = $muted
-    $repoLabel.Location = New-Object System.Drawing.Point(18, 54)
-
-    $repoBox = New-Object System.Windows.Forms.TextBox
-    $repoBox.Text = $DefaultRepo
-    $repoBox.Size = New-Object System.Drawing.Size(885, 30)
-    $repoBox.Location = New-Object System.Drawing.Point(18, 75)
-    $repoBox.Anchor = "Top,Left,Right"
-
-    $pathLabel = New-Object System.Windows.Forms.Label
-    $pathLabel.Text = "安裝路徑"
-    $pathLabel.AutoSize = $true
-    $pathLabel.ForeColor = $muted
-    $pathLabel.Location = New-Object System.Drawing.Point(18, 116)
-
-    $pathBox = New-Object System.Windows.Forms.TextBox
-    $pathBox.Text = $DefaultInstallPath
-    $pathBox.Size = New-Object System.Drawing.Size(885, 30)
-    $pathBox.Location = New-Object System.Drawing.Point(18, 137)
-    $pathBox.Anchor = "Top,Left,Right"
-
-    $configPanel.Controls.AddRange(@($configTitle, $repoLabel, $repoBox, $pathLabel, $pathBox))
-
-    $actionPanel = New-Object System.Windows.Forms.Panel
-    $actionPanel.BackColor = $panelBg
-    $actionPanel.Location = New-Object System.Drawing.Point(20, 308)
-    $actionPanel.Size = New-Object System.Drawing.Size(930, 86)
-    $actionPanel.Anchor = "Top,Left,Right"
-    $actionPanel.BorderStyle = "FixedSingle"
-
-    $btnInstall = New-Object System.Windows.Forms.Button
-    $btnInstall.Text = "安裝"
-    $btnInstall.Size = New-Object System.Drawing.Size(170, 44)
-    $btnInstall.Location = New-Object System.Drawing.Point(16, 20)
-
-    $btnReinstall = New-Object System.Windows.Forms.Button
-    $btnReinstall.Text = "重新安裝（強制）"
-    $btnReinstall.Size = New-Object System.Drawing.Size(190, 44)
-    $btnReinstall.Location = New-Object System.Drawing.Point(196, 20)
-
-    $btnUninstall = New-Object System.Windows.Forms.Button
-    $btnUninstall.Text = "解除安裝"
-    $btnUninstall.Size = New-Object System.Drawing.Size(170, 44)
-    $btnUninstall.Location = New-Object System.Drawing.Point(396, 20)
-
-    $btnOpen = New-Object System.Windows.Forms.Button
-    $btnOpen.Text = "啟動解鎖工具"
-    $btnOpen.Size = New-Object System.Drawing.Size(190, 44)
-    $btnOpen.Location = New-Object System.Drawing.Point(576, 20)
-
-    $btnExit = New-Object System.Windows.Forms.Button
-    $btnExit.Text = "關閉"
-    $btnExit.Size = New-Object System.Drawing.Size(140, 44)
-    $btnExit.Location = New-Object System.Drawing.Point(776, 20)
-    $btnExit.Anchor = "Top,Right"
-
-    foreach ($btn in @($btnInstall, $btnReinstall, $btnUninstall, $btnOpen, $btnExit)) {
-        $btn.FlatStyle = "Flat"
-        $btn.FlatAppearance.BorderSize = 0
-        $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
-        $btn.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 10, [System.Drawing.FontStyle]::Bold)
-        $btn.ForeColor = [System.Drawing.Color]::White
-    }
-    $btnInstall.BackColor = $accent
-    $btnReinstall.BackColor = [System.Drawing.Color]::FromArgb(50, 123, 244)
-    $btnUninstall.BackColor = $danger
-    $btnOpen.BackColor = [System.Drawing.Color]::FromArgb(72, 78, 92)
-    $btnExit.BackColor = [System.Drawing.Color]::FromArgb(108, 116, 136)
-
-    $actionPanel.Controls.AddRange(@($btnInstall, $btnReinstall, $btnUninstall, $btnOpen, $btnExit))
-
-    $logPanel = New-Object System.Windows.Forms.Panel
-    $logPanel.BackColor = $panelBg
-    $logPanel.Location = New-Object System.Drawing.Point(20, 408)
-    $logPanel.Size = New-Object System.Drawing.Size(930, 236)
-    $logPanel.Anchor = "Top,Bottom,Left,Right"
-    $logPanel.BorderStyle = "FixedSingle"
-
-    $logLabel = New-Object System.Windows.Forms.Label
-    $logLabel.Text = "操作紀錄"
-    $logLabel.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 11, [System.Drawing.FontStyle]::Bold)
-    $logLabel.AutoSize = $true
-    $logLabel.Location = New-Object System.Drawing.Point(16, 12)
-
-    $logBox = New-Object System.Windows.Forms.TextBox
-    $logBox.Multiline = $true
-    $logBox.ScrollBars = "Vertical"
-    $logBox.ReadOnly = $true
-    $logBox.BackColor = [System.Drawing.Color]::FromArgb(250, 251, 254)
-    $logBox.ForeColor = [System.Drawing.Color]::FromArgb(34, 44, 64)
-    $logBox.BorderStyle = "FixedSingle"
-    $logBox.Font = New-Object System.Drawing.Font("Microsoft JhengHei UI", 10)
-    $logBox.Location = New-Object System.Drawing.Point(16, 38)
-    $logBox.Size = New-Object System.Drawing.Size(895, 180)
-    $logBox.Anchor = "Top,Bottom,Left,Right"
-
-    $logPanel.Controls.AddRange(@($logLabel, $logBox))
-
-    $runAction = {
-        param([scriptblock]$Action)
-        try {
-            $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
-            & $Action
-        } catch {
-            Write-UiLog -LogBox $logBox -Message ("錯誤：" + $_.Exception.Message)
-            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "操作失敗", "OK", "Error") | Out-Null
-        } finally {
-            $form.Cursor = [System.Windows.Forms.Cursors]::Default
-        }
-    }
-
-    $btnInstall.Add_Click({
-        & $runAction {
-            Install-PasswordRecoveryRust -Repo $repoBox.Text -InstallPath $pathBox.Text -LogBox $logBox
-        }
-    })
-
-    $btnReinstall.Add_Click({
-        & $runAction {
-            Install-PasswordRecoveryRust -Repo $repoBox.Text -InstallPath $pathBox.Text -Force -LogBox $logBox
-        }
-    })
-
-    $btnUninstall.Add_Click({
-        & $runAction {
-            Uninstall-PasswordRecoveryRust -InstallPath $pathBox.Text -LogBox $logBox
-        }
-    })
-
-    $btnOpen.Add_Click({
-        if (Test-Path $pathBox.Text) {
-            $runner = Join-Path $pathBox.Text "run.ps1"
-            if (Test-Path $runner) {
-                Start-Process powershell.exe -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner)
-                Write-UiLog -LogBox $logBox -Message "已啟動解鎖工具。"
-            } else {
-                Write-UiLog -LogBox $logBox -Message "尚未安裝完成，找不到 run.ps1。"
+    foreach ($key in $propMap.Keys) {
+        if ($s.PSObject.Properties[$key] -and $s.$key) {
+            foreach ($el in $propMap[$key]) {
+                if (-not $el.Text) { $el.Text = $s.$key }
             }
+        }
+    }
+    if ($s.PSObject.Properties['installPath'] -and $s.installPath) {
+        $txtInstPath.Text = $s.installPath
+    }
+
+    # ── Update exe status ──
+    function RefreshExeStatus {
+        $exe = Find-CbExe
+        if ($exe) {
+            $lblExeStatus.Text = "CLI 工具已安裝: $exe"
+            $lblExeStatus.Foreground = [System.Windows.Media.Brushes]::MediumAquamarine
         } else {
-            Write-UiLog -LogBox $logBox -Message "找不到路徑：$($pathBox.Text)"
+            $lblExeStatus.Text = "CLI 工具未安裝。請先安裝再使用提取 Hash / 快速模式。"
+            $lblExeStatus.Foreground = [System.Windows.Media.Brushes]::IndianRed
+        }
+    }
+    RefreshExeStatus
+
+    # ── Event: Extract Hash ──
+    (F "btnExtract").Add_Click({
+        $archive = $txtExtArchive.Text.Trim()
+        if (-not $archive) { Log "✗ 請輸入壓縮檔路徑"; return }
+
+        $exe = Find-CbExe
+        if (-not $exe) { Log "✗ CLI 工具未安裝，請先到「安裝管理」安裝"; return }
+
+        $args = @("extract-hash", "--archive", $archive, "--out", ($txtExtHashOut.Text.Trim()))
+        if ($txtExtJohnDir.Text.Trim()) { $args += @("--john-dir", $txtExtJohnDir.Text.Trim()) }
+        if ($txtExtPerl.Text.Trim())    { $args += @("--perl", $txtExtPerl.Text.Trim()) }
+
+        Log "▸ 提取 Hash..."
+        try {
+            $result = & $exe @args 2>&1 | Out-String
+            Log $result.Trim()
+
+            if ($result -match "hash_file:\s*(.+)") {
+                $hf = $Matches[1].Trim()
+                if (-not $txtJohnHash.Text) { $txtJohnHash.Text = $hf }
+                if (-not $txtHcHash.Text)   { $txtHcHash.Text = $hf }
+                Log "✓ Hash 路徑已自動填入 John / Hashcat 面板"
+            }
+        } catch {
+            Log "✗ $($_.Exception.Message)"
         }
     })
 
-    $btnExit.Add_Click({ $form.Close() })
+    # ── Event: John Crack ──
+    (F "btnJohn").Add_Click({
+        $hashFile = $txtJohnHash.Text.Trim()
+        if (-not $hashFile) { Log "✗ 請輸入 Hash 檔案路徑"; return }
 
-    $form.Controls.AddRange(@($header, $configPanel, $actionPanel, $logPanel))
+        $exe = Find-CbExe
+        if (-not $exe) { Log "✗ CLI 工具未安裝"; return }
 
-    Write-UiLog -LogBox $logBox -Message "介面已就緒，請選擇要執行的項目。"
-    [void]$form.ShowDialog()
+        $args = @("john-crack", "--hash-file", $hashFile)
+        if ($txtJohnWordlist.Text.Trim()) { $args += @("--wordlist", $txtJohnWordlist.Text.Trim()) }
+        if ($txtJohnExe.Text.Trim())      { $args += @("--john", $txtJohnExe.Text.Trim()) }
+
+        Log "▸ 啟動 John the Ripper（新視窗）..."
+        try {
+            Start-Process -FilePath $exe -ArgumentList $args
+            Log "✓ John 已在獨立視窗中執行"
+        } catch {
+            Log "✗ $($_.Exception.Message)"
+        }
+    })
+
+    # ── Event: Hashcat GPU ──
+    (F "btnHashcat").Add_Click({
+        $hashFile = $txtHcHash.Text.Trim()
+        if (-not $hashFile) { Log "✗ 請輸入 Hash 檔案路徑"; return }
+
+        $exe = Find-CbExe
+        if (-not $exe) { Log "✗ CLI 工具未安裝"; return }
+
+        $args = @("hashcat-crack", "--hash-file", $hashFile, "--mode", $txtHcMode.Text.Trim(), "--attack", $txtHcAttack.Text.Trim())
+        if ($txtHcMask.Text.Trim())     { $args += @("--mask", $txtHcMask.Text.Trim()) }
+        if ($txtHcWordlist.Text.Trim()) { $args += @("--wordlist", $txtHcWordlist.Text.Trim()) }
+        if ($txtHcExe.Text.Trim())      { $args += @("--hashcat", $txtHcExe.Text.Trim()) }
+
+        Log "▸ 啟動 Hashcat GPU（新視窗）..."
+        try {
+            Start-Process -FilePath $exe -ArgumentList $args
+            Log "✓ Hashcat 已在獨立視窗中執行"
+        } catch {
+            Log "✗ $($_.Exception.Message)"
+        }
+    })
+
+    # ── Event: Quick Mode ──
+    (F "btnQuick").Add_Click({
+        $archive = $txtQuickArchive.Text.Trim()
+        if (-not $archive) { Log "✗ 請輸入壓縮檔路徑"; return }
+
+        $exe = Find-CbExe
+        if (-not $exe) { Log "✗ CLI 工具未安裝"; return }
+
+        $threads = $txtQuickThreads.Text.Trim()
+        if (-not $threads) { $threads = "8" }
+
+        if ($rbDict.IsChecked) {
+            $dict = $txtQuickDict.Text.Trim()
+            if (-not $dict) { Log "✗ 請輸入字典檔路徑"; return }
+            $args = @("recover", "--archive", $archive, "--dict", $dict, "--threads", $threads)
+        } else {
+            $mask = $txtQuickMask.Text.Trim()
+            if (-not $mask) { Log "✗ 請輸入 Mask"; return }
+            $args = @("recover", "--archive", $archive, "--mask", $mask, "--threads", $threads)
+        }
+
+        Log "▸ 快速模式執行中（可能需要一段時間）..."
+        $lblStatus.Text = "● 執行中..."
+        $lblStatus.Foreground = [System.Windows.Media.Brushes]::Gold
+
+        try {
+            $tempOut = [System.IO.Path]::GetTempFileName()
+            $tempErr = [System.IO.Path]::GetTempFileName()
+            $proc = Start-Process -FilePath $exe -ArgumentList $args -NoNewWindow -PassThru `
+                     -RedirectStandardOutput $tempOut -RedirectStandardError $tempErr -Wait
+
+            $stdout = Get-Content $tempOut -Raw -ErrorAction SilentlyContinue
+            $stderr = Get-Content $tempErr -Raw -ErrorAction SilentlyContinue
+            Remove-Item $tempOut, $tempErr -Force -ErrorAction SilentlyContinue
+
+            if ($stdout) { Log $stdout.Trim() }
+            if ($stderr) { Log "⚠ $($stderr.Trim())" }
+
+            if ($stdout -match "password:\s*(.+)") {
+                $pwd = $Matches[1].Trim()
+                Log "✓ 密碼已找到: $pwd"
+                [System.Windows.Clipboard]::SetText($pwd)
+                Log "✓ 已複製到剪貼簿"
+                [System.Windows.MessageBox]::Show("密碼: $pwd`n`n已複製到剪貼簿", "密碼已找到！", "OK", "Information") | Out-Null
+            } elseif ($stdout -match "not_found") {
+                Log "⚠ 字典/Mask 搜尋完畢，未找到密碼"
+            }
+        } catch {
+            Log "✗ $($_.Exception.Message)"
+        } finally {
+            $lblStatus.Text = "● 就緒"
+            $lblStatus.Foreground = [System.Windows.Media.Brushes]::MediumAquamarine
+        }
+    })
+
+    # ── Event: Install ──
+    (F "btnInstall").Add_Click({
+        $repo = $txtInstRepo.Text.Trim()
+        $path = $txtInstPath.Text.Trim()
+        if (-not $repo -or -not $path) { Log "✗ 請填寫 Repo 和安裝路徑"; return }
+
+        if (Test-Path $path) { Log "✗ 安裝路徑已存在: $path（請使用重新安裝）"; return }
+
+        Log "▸ 安裝中..."
+        try {
+            New-Item -ItemType Directory -Path $path -Force | Out-Null
+            $api = "https://api.github.com/repos/$repo/releases/latest"
+            Log "▸ 查詢最新版本..."
+            $release = Invoke-RestMethod -Uri $api
+            $asset = $release.assets | Where-Object { $_.name -match "windows" -and $_.name -match "x64" -and $_.name -match "\.zip$" } | Select-Object -First 1
+            if (-not $asset) { Log "✗ 找不到 Windows x64 zip 資產"; return }
+
+            $zip = Join-Path $env:TEMP "prr_latest.zip"
+            Log "▸ 下載: $($asset.browser_download_url)"
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+            Log "▸ 解壓縮..."
+            Expand-Archive -Path $zip -DestinationPath $path -Force
+            Remove-Item $zip -Force
+            Log "✓ 安裝完成: $path"
+            RefreshExeStatus
+        } catch {
+            Log "✗ $($_.Exception.Message)"
+        }
+    })
+
+    # ── Event: Reinstall ──
+    (F "btnReinstall").Add_Click({
+        $repo = $txtInstRepo.Text.Trim()
+        $path = $txtInstPath.Text.Trim()
+        if (-not $repo -or -not $path) { Log "✗ 請填寫 Repo 和安裝路徑"; return }
+
+        Log "▸ 重新安裝中..."
+        try {
+            if (Test-Path $path) { Remove-Item $path -Recurse -Force; Log "▸ 已移除舊安裝" }
+            New-Item -ItemType Directory -Path $path -Force | Out-Null
+            $api = "https://api.github.com/repos/$repo/releases/latest"
+            $release = Invoke-RestMethod -Uri $api
+            $asset = $release.assets | Where-Object { $_.name -match "windows" -and $_.name -match "x64" -and $_.name -match "\.zip$" } | Select-Object -First 1
+            if (-not $asset) { Log "✗ 找不到資產"; return }
+
+            $zip = Join-Path $env:TEMP "prr_latest.zip"
+            Log "▸ 下載..."
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+            Expand-Archive -Path $zip -DestinationPath $path -Force
+            Remove-Item $zip -Force
+            Log "✓ 重新安裝完成"
+            RefreshExeStatus
+        } catch {
+            Log "✗ $($_.Exception.Message)"
+        }
+    })
+
+    # ── Event: Uninstall ──
+    (F "btnUninstall").Add_Click({
+        $path = $txtInstPath.Text.Trim()
+        if (-not $path) { Log "✗ 安裝路徑為空"; return }
+
+        if (Test-Path $path) {
+            Remove-Item $path -Recurse -Force
+            Log "✓ 已移除: $path"
+        } else {
+            Log "⚠ 路徑不存在: $path"
+        }
+        RefreshExeStatus
+    })
+
+    # ── Event: Open Directory ──
+    (F "btnOpenDir").Add_Click({
+        $path = $txtInstPath.Text.Trim()
+        if ($path -and (Test-Path $path)) {
+            Start-Process explorer.exe $path
+        } else {
+            Log "⚠ 目錄不存在: $path"
+        }
+    })
+
+    # ── Event: Save Settings ──
+    (F "btnSaveSettings").Add_Click({
+        $obj = [PSCustomObject]@{
+            johnDir    = $txtSetJohnDir.Text.Trim()
+            johnExe    = $txtSetJohnExe.Text.Trim()
+            hashcatExe = $txtSetHcExe.Text.Trim()
+            perl       = $txtSetPerl.Text.Trim()
+            threads    = $txtSetThreads.Text.Trim()
+            installPath= $txtInstPath.Text.Trim()
+        }
+        Save-CbSettings $obj
+
+        if ($obj.johnDir -and -not $txtExtJohnDir.Text) { $txtExtJohnDir.Text = $obj.johnDir }
+        if ($obj.johnExe -and -not $txtJohnExe.Text)    { $txtJohnExe.Text = $obj.johnExe }
+        if ($obj.hashcatExe -and -not $txtHcExe.Text)   { $txtHcExe.Text = $obj.hashcatExe }
+        if ($obj.perl -and -not $txtExtPerl.Text)        { $txtExtPerl.Text = $obj.perl }
+
+        Log "✓ 設定已儲存"
+    })
+
+    # ── Event: Log actions ──
+    (F "btnCopyLog").Add_Click({
+        if ($txtLog.Text) {
+            [System.Windows.Clipboard]::SetText($txtLog.Text)
+            Log "✓ 日誌已複製到剪貼簿"
+        }
+    })
+
+    (F "btnClearLog").Add_Click({
+        $txtLog.Clear()
+        Log "日誌已清除"
+    })
+
+    # ── Ready ──
+    Log "✓ CipherBreak 介面已就緒"
+    $w.ShowDialog() | Out-Null
 }
 
-if ($MyInvocation.InvocationName -ne '.') {
+# ══════════════════════════════════════════
+#  Entry
+# ══════════════════════════════════════════
+if ($MyInvocation.InvocationName -ne ".") {
     try {
-        $relaunched = Ensure-StaGuiSession
+        $relaunched = Ensure-Sta
         if (-not $relaunched) {
-            Show-WinUtilStyleInstaller
+            Show-CipherBreak
         }
     } catch {
         Write-Error $_
