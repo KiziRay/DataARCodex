@@ -13,4 +13,8 @@ $repo = if ($env:PRR_REPO) { $env:PRR_REPO } else { "KiziRay/DataARCodex" }
 $ref = if ($env:PRR_REF) { $env:PRR_REF } else { "main" }
 $scriptPath = "installer-main.ps1"
 $mainScript = "https://raw.githubusercontent.com/$repo/$ref/$scriptPath"
-Invoke-RestMethod $mainScript | Invoke-Expression
+$scriptText = Invoke-RestMethod $mainScript
+if ($scriptText -and $scriptText[0] -eq [char]0xFEFF) {
+    $scriptText = $scriptText.Substring(1)
+}
+Invoke-Expression $scriptText
