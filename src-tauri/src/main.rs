@@ -249,6 +249,28 @@ fn check_directory(key: &str, label: &str, path: &Path) -> ToolCheck {
     }
 }
 
+#[tauri::command]
+fn cmd_pick_file() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_file()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn cmd_pick_folder() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_folder()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn cmd_pick_save_file() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_file_name("hash.txt")
+        .save_file()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 fn check_candidates(key: &str, label: &str, candidates: &[PathBuf]) -> ToolCheck {
     if let Some(found) = candidates.iter().find(|path| path.exists()) {
         return ToolCheck {
@@ -281,7 +303,10 @@ fn main() {
             cmd_hashcat_crack,
             cmd_recover_dict,
             cmd_recover_mask,
-            cmd_check_environment
+            cmd_check_environment,
+            cmd_pick_file,
+            cmd_pick_folder,
+            cmd_pick_save_file
         ])
         .run(tauri::generate_context!())
         .expect("啟動 Tauri 失敗");

@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CipherBreak",
   "version": "1.0.0",
@@ -7,9 +7,10 @@
     "frontendDist": "../ui"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
-        "title": "CipherBreak - Password Unlock Tool",
+        "title": "CipherBreak — 壓縮檔密碼解鎖",
         "width": 1200,
         "height": 820,
         "minWidth": 800,

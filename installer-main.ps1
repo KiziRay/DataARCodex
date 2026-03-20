@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     CipherBreak — 壓縮檔密碼解鎖工具 (WPF GUI)
 .DESCRIPTION
@@ -25,7 +25,7 @@ function Ensure-Sta {
             "-NoProfile","-ExecutionPolicy","Bypass","-STA","-File",$PSCommandPath
         ) | Out-Null
     } else {
-        $cmd = "`$env:CB_STA='1'; irm 'https://raw.githubusercontent.com/$script:Repo/main/installer-main.ps1' | iex"
+        $cmd = "`$env:CB_STA='1'; iex ((irm 'https://raw.githubusercontent.com/$script:Repo/main/installer-main.ps1').TrimStart([char]0xFEFF))"
         Start-Process powershell.exe -ArgumentList @(
             "-NoProfile","-ExecutionPolicy","Bypass","-STA","-Command",$cmd
         ) | Out-Null
