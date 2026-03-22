@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "name": "Community Toolkit",
+  "theme": "dark",
+  "language": "zh-TW",
+  "modules_path": "./modules",
+  "auto_load_modules": true,
+  "window": {
+    "width": 1000,
+    "height": 700,
+    "title": "Community Toolkit"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "template",
+  "display_name": "模組模板",
+  "version": "1.0.0",
+  "description": "這是一個模組模板，複製此目錄來建立新模組",
+  "author": "Your Name",
+  "category": "utility",
+  "requires_admin": false,
+  "settings": {
+    "example_setting": "value"
+  }
+}

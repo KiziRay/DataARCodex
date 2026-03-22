@@ -1,0 +1,9 @@
+{
+  "name": "example",
+  "display_name": "範例工具",
+  "version": "1.0.0",
+  "description": "展示模組功能的範例工具",
+  "author": "Community Toolkit",
+  "category": "example",
+  "requires_admin": false
+}
